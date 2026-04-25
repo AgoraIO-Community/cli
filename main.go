@@ -10,6 +10,10 @@ import (
 func main() {
 	app, err := cli.NewApp()
 	if err != nil {
+		if cli.JSONRequested(os.Args[1:]) {
+			_ = cli.EmitJSONError("agora", err, 1, "")
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}

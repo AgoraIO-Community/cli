@@ -545,7 +545,7 @@ func TestPathsLogsAndArtifactsParity(t *testing.T) {
 	if int(parsed["version"].(float64)) != currentAppConfigVersion {
 		t.Fatalf("unexpected config.example version: %v", parsed)
 	}
-	for _, file := range []string{"README.md", "RELEASING.md", filepath.Join("docs", "automation.md")} {
+	for _, file := range []string{"README.md", "RELEASING.md", filepath.Join("docs", "automation.md"), filepath.Join(".github", "workflows", "ci.yml"), filepath.Join(".github", "workflows", "release.yml")} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", file))
 		if err != nil {
 			t.Fatalf("expected %s: %v", file, err)
@@ -555,6 +555,12 @@ func TestPathsLogsAndArtifactsParity(t *testing.T) {
 		}
 		if file == filepath.Join("docs", "automation.md") && (!strings.Contains(string(raw), "--json") || !strings.Contains(string(raw), "\"command\": \"init\"") || !strings.Contains(string(raw), "project doctor")) {
 			t.Fatalf("unexpected automation doc contents: %s", string(raw))
+		}
+		if file == filepath.Join(".github", "workflows", "ci.yml") && (!strings.Contains(string(raw), "pull_request:") || !strings.Contains(string(raw), "ubuntu-latest") || !strings.Contains(string(raw), "macos-latest") || !strings.Contains(string(raw), "windows-latest")) {
+			t.Fatalf("unexpected ci workflow contents: %s", string(raw))
+		}
+		if file == filepath.Join(".github", "workflows", "release.yml") && (!strings.Contains(string(raw), "refs/tags/v") && !strings.Contains(string(raw), "tags:")) {
+			t.Fatalf("unexpected release workflow contents: %s", string(raw))
 		}
 	}
 }

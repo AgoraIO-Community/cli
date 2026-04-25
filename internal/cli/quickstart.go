@@ -289,7 +289,10 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	if boundProject != nil {
 		writtenPath, _, err := seedQuickstartEnv(absTarget, template, boundProject.project)
 		if err != nil {
-			return nil, err
+			if cleanupErr := os.RemoveAll(absTarget); cleanupErr != nil {
+				return nil, fmt.Errorf("failed to configure quickstart env after clone: %v; cleanup also failed for %s: %v", err, absTarget, cleanupErr)
+			}
+			return nil, fmt.Errorf("failed to configure quickstart env after clone: %v; removed %s", err, absTarget)
 		}
 		envStatus = "configured"
 		envPath = writtenPath

@@ -180,6 +180,7 @@ For scripts, CI, and agentic workflows:
 - use `./agora --help --all` to inspect the full command tree
 - use `quickstart env write` to re-sync env files after changing project selection
 - use `project doctor --json` for readiness checks
+- rely on the same JSON envelope for both success and failure
 
 Examples:
 
@@ -192,6 +193,18 @@ Examples:
 ```
 
 The JSON envelope and stable result shapes are documented in [docs/automation.md](docs/automation.md).
+
+## CI and Releases
+
+GitHub Actions are configured for:
+- push and pull request validation on Linux, macOS, and Windows
+- automated tag-driven releases for `v*` tags
+- cross-platform release artifacts for Linux, macOS, and Windows
+
+Release workflow behavior:
+- a pushed tag like `v0.1.4` triggers the release workflow
+- the workflow runs tests, builds release binaries, packages them, and publishes a GitHub release automatically
+- release artifacts include checksums
 
 ## Configuration
 

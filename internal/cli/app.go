@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -134,7 +135,13 @@ type jsonEnvelope struct {
 	OK      bool           `json:"ok"`
 	Command string         `json:"command"`
 	Data    any            `json:"data"`
+	Error   *envelopeError `json:"error,omitempty"`
 	Meta    map[string]any `json:"meta"`
+}
+
+type envelopeError struct {
+	Message     string `json:"message"`
+	LogFilePath string `json:"logFilePath,omitempty"`
 }
 
 type App struct {
@@ -185,15 +192,40 @@ func (a *App) Execute() error {
 		if _, ok := ExitCode(err); ok {
 			return err
 		}
+		logPath := resolveLogFilePathForDisplay(a.env)
 		_ = appendAppLog("error", "command.failed", a.env, map[string]any{
 			"error":       err.Error(),
-			"logFilePath": resolveLogFilePathForDisplay(a.env),
+			"logFilePath": logPath,
 		})
+		if mode == outputJSON {
+			_ = emitErrorEnvelope(os.Stdout, a.guessCommandLabel(os.Args[1:]), err, 1, logPath)
+			return &renderedError{err: err}
+		}
 		fmt.Fprintln(os.Stderr, err.Error())
-		fmt.Fprintf(os.Stderr, "Detailed log: %s\n", resolveLogFilePathForDisplay(a.env))
+		fmt.Fprintf(os.Stderr, "Detailed log: %s\n", logPath)
 		return &renderedError{err: err}
 	}
 	return nil
+}
+
+func JSONRequested(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--json" {
+			return true
+		}
+		if arg == "--output" && index+1 < len(args) && args[index+1] == "json" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--output=") && strings.TrimPrefix(arg, "--output=") == "json" {
+			return true
+		}
+	}
+	return false
+}
+
+func EmitJSONError(command string, err error, exitCode int, logFilePath string) error {
+	return emitErrorEnvelope(os.Stdout, command, err, exitCode, logFilePath)
 }
 
 func readRawFlagValue(args []string, flag string) string {
@@ -212,6 +244,18 @@ func hasFlag(args []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+func (a *App) guessCommandLabel(args []string) string {
+	cmd, _, err := a.root.Find(args)
+	if err != nil || cmd == nil {
+		return "agora"
+	}
+	path := strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), "agora"))
+	if path == "" {
+		return "agora"
+	}
+	return strings.TrimSpace(path)
 }
 
 func snapshotEnv() map[string]string {
@@ -475,8 +519,8 @@ func (a *App) resolveOutputMode(cmd *cobra.Command) outputMode {
 	return resolveConfiguredOutputMode(output, a.env)
 }
 
-func emitEnvelope(command string, data any) error {
-	return json.NewEncoder(os.Stdout).Encode(jsonEnvelope{
+func emitEnvelope(out io.Writer, command string, data any) error {
+	return json.NewEncoder(out).Encode(jsonEnvelope{
 		OK:      true,
 		Command: command,
 		Data:    data,
@@ -484,96 +528,120 @@ func emitEnvelope(command string, data any) error {
 	})
 }
 
+func emitErrorEnvelope(out io.Writer, command string, err error, exitCode int, logFilePath string) error {
+	meta := map[string]any{
+		"outputMode": "json",
+		"exitCode":   exitCode,
+	}
+	return json.NewEncoder(out).Encode(jsonEnvelope{
+		OK:      false,
+		Command: command,
+		Data:    nil,
+		Error: &envelopeError{
+			Message:     err.Error(),
+			LogFilePath: logFilePath,
+		},
+		Meta: meta,
+	})
+}
+
 func renderResult(cmd *cobra.Command, command string, data any) error {
+	out := cmd.OutOrStdout()
 	if aMode := cmd.Context().Value(contextKeyOutputMode{}); aMode != nil && aMode.(outputMode) == outputJSON {
-		return emitEnvelope(command, data)
+		return emitEnvelope(out, command, data)
 	}
 	switch command {
 	case "login":
 		m := data.(map[string]any)
-		printBlock("Login", [][2]string{{"Status", asString(m["status"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
+		printBlock(out, "Login", [][2]string{{"Status", asString(m["status"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
 	case "logout":
 		m := data.(map[string]any)
-		printBlock("Logout", [][2]string{{"Status", asString(m["status"])}, {"Session Cleared", asString(m["clearedSession"])}})
+		printBlock(out, "Logout", [][2]string{{"Status", asString(m["status"])}, {"Session Cleared", asString(m["clearedSession"])}})
 	case "auth status":
 		m := data.(map[string]any)
-		printBlock("Auth", [][2]string{{"Status", asString(m["status"])}, {"Authenticated", asString(m["authenticated"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
+		printBlock(out, "Auth", [][2]string{{"Status", asString(m["status"])}, {"Authenticated", asString(m["authenticated"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
 	case "project create":
 		m := data.(map[string]any)
 		features := "-"
 		if list, ok := m["enabledFeatures"].([]string); ok {
 			features = strings.Join(list, ", ")
 		}
-		printBlock("Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"Region", asString(m["region"])}, {"Features", features}})
+		printBlock(out, "Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"Region", asString(m["region"])}, {"Features", features}})
 	case "project use":
 		m := data.(map[string]any)
-		printBlock("Current Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Region", asString(m["region"])}})
+		printBlock(out, "Current Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Region", asString(m["region"])}})
 	case "project show":
 		m := data.(map[string]any)
-		printBlock("Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"App Certificate", asString(m["appCertificate"])}, {"Region", asString(m["region"])}, {"Token Enabled", asString(m["tokenEnabled"])}})
+		printBlock(out, "Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"App Certificate", asString(m["appCertificate"])}, {"Region", asString(m["region"])}, {"Token Enabled", asString(m["tokenEnabled"])}})
 	case "project env write":
 		m := data.(map[string]any)
-		printBlock("Project Env", [][2]string{{"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Path", asString(m["path"])}, {"Status", asString(m["status"])}})
+		printBlock(out, "Project Env", [][2]string{{"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Path", asString(m["path"])}, {"Status", asString(m["status"])}})
+	case "project env":
+		m := data.(map[string]any)
+		valuesText := renderProjectEnv(m["values"].(map[string]any), envDotenv)
+		printBlock(out, "Project Env", [][2]string{{"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Region", asString(m["region"])}})
+		fmt.Fprintln(out)
+		fmt.Fprint(out, valuesText)
 	case "quickstart list":
 		m := data.(map[string]any)
-		fmt.Fprintln(os.Stdout, "Quickstarts")
+		fmt.Fprintln(out, "Quickstarts")
 		if items, ok := m["items"].([]map[string]any); ok {
 			for _, item := range items {
-				fmt.Fprintf(os.Stdout, "- %s: %s\n", asString(item["id"]), asString(item["title"]))
-				fmt.Fprintf(os.Stdout, "  Available: %s\n", asString(item["available"]))
-				fmt.Fprintf(os.Stdout, "  Runtime: %s\n", asString(item["runtime"]))
-				fmt.Fprintf(os.Stdout, "  Supports Init: %s\n", asString(item["supportsInit"]))
-				fmt.Fprintf(os.Stdout, "  Env: %s\n", asString(item["envDocs"]))
-				fmt.Fprintf(os.Stdout, "  Repo: %s\n", asString(item["repoUrl"]))
+				fmt.Fprintf(out, "- %s: %s\n", asString(item["id"]), asString(item["title"]))
+				fmt.Fprintf(out, "  Available: %s\n", asString(item["available"]))
+				fmt.Fprintf(out, "  Runtime: %s\n", asString(item["runtime"]))
+				fmt.Fprintf(out, "  Supports Init: %s\n", asString(item["supportsInit"]))
+				fmt.Fprintf(out, "  Env: %s\n", asString(item["envDocs"]))
+				fmt.Fprintf(out, "  Repo: %s\n", asString(item["repoUrl"]))
 			}
 		}
 	case "quickstart create":
 		m := data.(map[string]any)
-		printBlock("Quickstart", [][2]string{{"Template", asString(m["template"])}, {"Path", asString(m["path"])}, {"Project", asString(m["projectName"])}, {"Env", asString(m["envStatus"])}, {"Status", asString(m["status"])}})
+		printBlock(out, "Quickstart", [][2]string{{"Template", asString(m["template"])}, {"Path", asString(m["path"])}, {"Project", asString(m["projectName"])}, {"Env", asString(m["envStatus"])}, {"Status", asString(m["status"])}})
 	case "quickstart env write":
 		m := data.(map[string]any)
-		printBlock("Quickstart Env", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Status", asString(m["status"])}})
+		printBlock(out, "Quickstart Env", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Status", asString(m["status"])}})
 	case "init":
 		m := data.(map[string]any)
 		features := "-"
 		if list, ok := m["enabledFeatures"].([]string); ok && len(list) > 0 {
 			features = strings.Join(list, ", ")
 		}
-		printBlock("Init", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Project Action", asString(m["projectAction"])}, {"Region", asString(m["region"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Features", features}, {"Status", asString(m["status"])}})
+		printBlock(out, "Init", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Project Action", asString(m["projectAction"])}, {"Region", asString(m["region"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Features", features}, {"Status", asString(m["status"])}})
 		if steps, ok := m["nextSteps"].([]string); ok && len(steps) > 0 {
-			fmt.Fprintln(os.Stdout)
-			fmt.Fprintln(os.Stdout, "Next Steps")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Next Steps")
 			for _, step := range steps {
-				fmt.Fprintf(os.Stdout, "- %s\n", step)
+				fmt.Fprintf(out, "- %s\n", step)
 			}
 		}
 	case "project feature list":
 		m := data.(map[string]any)
-		fmt.Fprintf(os.Stdout, "Project Features: %s\n", asString(m["projectName"]))
+		fmt.Fprintf(out, "Project Features: %s\n", asString(m["projectName"]))
 		if items, ok := m["items"].([]featureItem); ok {
 			for _, item := range items {
-				fmt.Fprintf(os.Stdout, "- %s: %s (%s)\n", item.Feature, item.Status, item.Message)
+				fmt.Fprintf(out, "- %s: %s (%s)\n", item.Feature, item.Status, item.Message)
 			}
 		}
 	case "project feature status", "project feature enable":
 		m := data.(map[string]any)
-		printBlock("Feature", [][2]string{{"Feature", asString(m["feature"])}, {"Project", asString(m["projectName"])}, {"Status", asString(m["status"])}, {"Message", asString(m["message"])}})
+		printBlock(out, "Feature", [][2]string{{"Feature", asString(m["feature"])}, {"Project", asString(m["projectName"])}, {"Status", asString(m["status"])}, {"Message", asString(m["message"])}})
 	case "project list":
 		m := data.(map[string]any)
-		printBlock("Projects", [][2]string{{"Total", asString(m["total"])}})
-		fmt.Fprintln(os.Stdout)
+		printBlock(out, "Projects", [][2]string{{"Total", asString(m["total"])}})
+		fmt.Fprintln(out)
 		if items, ok := m["items"].([]projectSummary); ok {
 			for _, item := range items {
-				fmt.Fprintln(os.Stdout, item.Name)
-				printBlock("", [][2]string{{"Project ID", item.ProjectID}, {"Type", item.ProjectType}, {"Status", item.Status}})
-				fmt.Fprintln(os.Stdout)
+				fmt.Fprintln(out, item.Name)
+				printBlock(out, "", [][2]string{{"Project ID", item.ProjectID}, {"Type", item.ProjectType}, {"Status", item.Status}})
+				fmt.Fprintln(out)
 			}
 		}
 	case "project doctor":
-		return printDoctor(data.(projectDoctorResult))
+		return printDoctor(out, data.(projectDoctorResult))
 	default:
 		encoded, _ := json.MarshalIndent(data, "", "  ")
-		fmt.Fprintf(os.Stdout, "%s\n%s\n", command, string(encoded))
+		fmt.Fprintf(out, "%s\n%s\n", command, string(encoded))
 	}
 	return nil
 }
@@ -597,7 +665,7 @@ func asString(v any) string {
 	}
 }
 
-func printBlock(title string, rows [][2]string) {
+func printBlock(out io.Writer, title string, rows [][2]string) {
 	width := 0
 	for _, row := range rows {
 		if len(row[0]) > width {
@@ -605,41 +673,41 @@ func printBlock(title string, rows [][2]string) {
 		}
 	}
 	if title != "" {
-		fmt.Fprintln(os.Stdout, title)
+		fmt.Fprintln(out, title)
 	}
 	for _, row := range rows {
-		fmt.Fprintf(os.Stdout, "%-*s : %s\n", width, row[0], row[1])
+		fmt.Fprintf(out, "%-*s : %s\n", width, row[0], row[1])
 	}
 }
 
-func printDoctor(result projectDoctorResult) error {
+func printDoctor(out io.Writer, result projectDoctorResult) error {
 	if m, ok := result.Project.(map[string]any); ok {
-		fmt.Fprintf(os.Stdout, "Checking project: %s\n", asString(m["name"]))
+		fmt.Fprintf(out, "Checking project: %s\n", asString(m["name"]))
 		mode := "Mode: convoai"
 		if result.Mode == "deep" {
 			mode += " (deep)"
 		}
-		fmt.Fprintf(os.Stdout, "%s\n\n", mode)
+		fmt.Fprintf(out, "%s\n\n", mode)
 	}
 	for _, category := range result.Checks {
-		fmt.Fprintf(os.Stdout, "%s\n", strings.ToUpper(category.Category[:1])+category.Category[1:])
+		fmt.Fprintf(out, "%s\n", strings.ToUpper(category.Category[:1])+category.Category[1:])
 		for _, item := range category.Items {
 			marker := map[string]string{"pass": "✓", "warn": "!", "skipped": "-", "fail": "✗"}[item.Status]
-			fmt.Fprintf(os.Stdout, "  %s %s\n", marker, item.Message)
+			fmt.Fprintf(out, "  %s %s\n", marker, item.Message)
 			if item.SuggestedCommand != "" {
-				fmt.Fprintf(os.Stdout, "    Run: %s\n", item.SuggestedCommand)
+				fmt.Fprintf(out, "    Run: %s\n", item.SuggestedCommand)
 			}
 		}
-		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(out)
 	}
-	fmt.Fprintln(os.Stdout, "Summary")
+	fmt.Fprintln(out, "Summary")
 	marker := "✗"
 	if result.Healthy {
 		marker = "✓"
 	} else if result.Status == "warning" {
 		marker = "!"
 	}
-	fmt.Fprintf(os.Stdout, "  %s %s\n", marker, result.Summary)
+	fmt.Fprintf(out, "  %s %s\n", marker, result.Summary)
 	return nil
 }
 

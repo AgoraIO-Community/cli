@@ -51,6 +51,10 @@ func TestCLIHelperProcess(t *testing.T) {
 
 	app, err := NewApp()
 	if err != nil {
+		if JSONRequested(cliArgs) {
+			_ = EmitJSONError("agora", err, 1, "")
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
@@ -475,6 +479,18 @@ func TestCLIHelpContentIsTaskOriented(t *testing.T) {
 	}
 }
 
+func TestCLIJSONErrorsUseEnvelope(t *testing.T) {
+	result := runCLI(t, []string{"project", "env", "write", ".env.custom", "--append", "--overwrite", "--json"}, cliRunOptions{
+		env: map[string]string{
+			"XDG_CONFIG_HOME": t.TempDir(),
+			"AGORA_LOG_LEVEL": "error",
+		},
+	})
+	if result.exitCode != 1 || !strings.Contains(result.stdout, `"ok":false`) || !strings.Contains(result.stdout, `"command":"project env write"`) || !strings.Contains(result.stdout, `"exitCode":1`) || result.stderr != "" {
+		t.Fatalf("unexpected json error envelope: %+v", result)
+	}
+}
+
 func TestCLIQuickstartListAndCreate(t *testing.T) {
 	configHome := t.TempDir()
 	api := newFakeCLIBFF()
@@ -643,6 +659,27 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 	}
 	if !strings.Contains(string(goEnv), "APP_ID=app_123456") || !strings.Contains(string(goEnv), "APP_CERTIFICATE=") {
 		t.Fatalf("unexpected go .env.local contents: %s", string(goEnv))
+	}
+
+	noCertProject := buildFakeProject("No Cert", "prj_nocert", "app_nocert", "global")
+	noCertProject.SignKey = nil
+	noCertProject.CertificateEnabled = false
+	api.projects[noCertProject.ProjectID] = &noCertProject
+	rollbackTarget := filepath.Join(rootDir, "rollback-demo")
+	createRollback := runCLI(t, []string{"quickstart", "create", "rollback-demo", "--template", "python", "--dir", rollbackTarget, "--project", "prj_nocert", "--json"}, cliRunOptions{
+		env: map[string]string{
+			"XDG_CONFIG_HOME":                  configHome,
+			"AGORA_API_BASE_URL":               api.baseURL,
+			"AGORA_LOG_LEVEL":                  "error",
+			"AGORA_QUICKSTART_PYTHON_REPO_URL": pythonRepo,
+		},
+		workdir: rootDir,
+	})
+	if createRollback.exitCode != 1 || !strings.Contains(createRollback.stdout, `"ok":false`) || !strings.Contains(createRollback.stdout, `failed to configure quickstart env after clone`) {
+		t.Fatalf("unexpected rollback quickstart result: %+v", createRollback)
+	}
+	if _, err := os.Stat(rollbackTarget); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected rollback target to be removed, got %v", err)
 	}
 }
 
@@ -908,7 +945,7 @@ func TestCLIProjectEnvFormatsAndWriteRules(t *testing.T) {
 		"AGORA_API_BASE_URL": api.baseURL,
 		"AGORA_LOG_LEVEL":    "error",
 	}})
-	if jsonResult.exitCode != 0 || !strings.Contains(jsonResult.stdout, `"AGORA_FEATURE_CONVOAI": true`) {
+	if jsonResult.exitCode != 0 || !strings.Contains(jsonResult.stdout, `"command":"project env"`) || !strings.Contains(jsonResult.stdout, `"AGORA_FEATURE_CONVOAI":true`) {
 		t.Fatalf("unexpected json env result: %+v", jsonResult)
 	}
 
@@ -925,6 +962,18 @@ func TestCLIProjectEnvFormatsAndWriteRules(t *testing.T) {
 	})
 	if explicitConflict.exitCode != 1 || !strings.Contains(explicitConflict.stderr, "--append") {
 		t.Fatalf("unexpected explicit write conflict: %+v", explicitConflict)
+	}
+
+	explicitConflictJSON := runCLI(t, []string{"project", "env", "write", ".env.custom", "--json"}, cliRunOptions{
+		env: map[string]string{
+			"XDG_CONFIG_HOME":    configHome,
+			"AGORA_API_BASE_URL": api.baseURL,
+			"AGORA_LOG_LEVEL":    "error",
+		},
+		workdir: projectDir,
+	})
+	if explicitConflictJSON.exitCode != 1 || !strings.Contains(explicitConflictJSON.stdout, `"ok":false`) || !strings.Contains(explicitConflictJSON.stdout, `"command":"project env write"`) || !strings.Contains(explicitConflictJSON.stdout, `--append`) || explicitConflictJSON.stderr != "" {
+		t.Fatalf("unexpected explicit write conflict json result: %+v", explicitConflictJSON)
 	}
 
 	appendResult := runCLI(t, []string{"project", "env", "write", "--append", "--json"}, cliRunOptions{

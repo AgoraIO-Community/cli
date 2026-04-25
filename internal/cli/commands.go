@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -517,7 +516,21 @@ Use "project env write" when you want to persist the values into a managed doten
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprint(os.Stdout, renderProjectEnv(values, format))
+			if format == envJSON {
+				target, err := a.resolveProjectTarget(a.projectEnvProject)
+				if err != nil {
+					return err
+				}
+				return renderResult(cmd, "project env", map[string]any{
+					"action":      "env",
+					"format":      "json",
+					"projectId":   target.project.ProjectID,
+					"projectName": target.project.Name,
+					"region":      target.region,
+					"values":      values,
+				})
+			}
+			_, err = fmt.Fprint(cmd.OutOrStdout(), renderProjectEnv(values, format))
 			return err
 		},
 	}
