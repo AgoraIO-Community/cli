@@ -98,8 +98,7 @@ func (a *App) buildQuickstartCommand() *cobra.Command {
 		Short: "Clone official standalone Agora quickstarts",
 		Long: `Quickstart commands clone official reference applications into a new directory.
 
-Use this group when you want a standalone demo or onboarding project.
-Use "agora add" for future in-place integrations into an existing codebase.`,
+Use this group when you want a standalone demo or onboarding project.`,
 		Example: strings.TrimSpace(`
   agora quickstart list
   agora quickstart create my-nextjs-demo --template nextjs
@@ -272,7 +271,7 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	}
 
 	var boundProject *projectTarget
-	if target, ok, err := a.resolveOptionalProjectTarget(explicitProject); err != nil {
+	if target, ok, err := a.resolveOptionalProjectTarget(explicitProject, ""); err != nil {
 		return nil, err
 	} else if ok {
 		boundProject = &target
@@ -353,12 +352,12 @@ func (a *App) quickstartEnvWrite(targetDir, templateID, explicitProject string) 
 	if err != nil {
 		return nil, err
 	}
-	target, ok, err := a.resolveOptionalProjectTarget(explicitProject)
+	target, ok, err := a.resolveOptionalProjectTarget(explicitProject, absTarget)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		return nil, errors.New("No project selected. Run `agora project use <project>` or pass `--project` explicitly.")
+		return nil, errNoProjectSelected
 	}
 
 	envPath, status, err := seedQuickstartEnv(absTarget, template, target.project)
@@ -408,14 +407,14 @@ func cloneQuickstartRepo(repoURL, targetDir string) error {
 	return nil
 }
 
-func (a *App) resolveOptionalProjectTarget(explicitProject string) (projectTarget, bool, error) {
+func (a *App) resolveOptionalProjectTarget(explicitProject, startPath string) (projectTarget, bool, error) {
 	if strings.TrimSpace(explicitProject) != "" {
-		target, err := a.resolveProjectTarget(explicitProject)
+		target, err := a.resolveProjectTargetFrom(explicitProject, startPath)
 		return target, true, err
 	}
-	target, err := a.resolveProjectTarget("")
+	target, err := a.resolveProjectTargetFrom("", startPath)
 	if err != nil {
-		if strings.Contains(err.Error(), "No project selected.") {
+		if errors.Is(err, errNoProjectSelected) {
 			return projectTarget{}, false, nil
 		}
 		return projectTarget{}, false, err

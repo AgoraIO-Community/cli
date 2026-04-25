@@ -130,6 +130,7 @@ type projectDoctorResult struct {
 	Status         string                `json:"status"`
 	Summary        string                `json:"summary"`
 	Warnings       []doctorIssue         `json:"warnings"`
+	Workspace      any                   `json:"workspace,omitempty"`
 }
 
 type jsonEnvelope struct {

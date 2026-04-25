@@ -48,7 +48,13 @@ type projectTarget struct {
 	region  string
 }
 
+var errNoProjectSelected = errors.New("No project selected. Pass `--project`, work inside a repo with `.agora/project.json`, or run `agora project use <project>`.")
+
 func (a *App) resolveProjectTarget(explicit string) (projectTarget, error) {
+	return a.resolveProjectTargetFrom(explicit, "")
+}
+
+func (a *App) resolveProjectTargetFrom(explicit, startPath string) (projectTarget, error) {
 	ctx, err := loadContext(a.env)
 	if err != nil {
 		return projectTarget{}, err
@@ -76,7 +82,7 @@ func (a *App) resolveProjectTarget(explicit string) (projectTarget, error) {
 		}
 		return projectTarget{project: project, region: region}, nil
 	}
-	if binding, ok, _, err := detectLocalProjectBinding(); err != nil {
+	if binding, ok, _, err := detectLocalProjectBindingFrom(startPath); err != nil {
 		return projectTarget{}, err
 	} else if ok && binding.ProjectID != "" {
 		project, err := a.getProject(binding.ProjectID)
@@ -96,7 +102,7 @@ func (a *App) resolveProjectTarget(explicit string) (projectTarget, error) {
 		return projectTarget{project: project, region: region}, nil
 	}
 	if ctx.CurrentProjectID == nil || *ctx.CurrentProjectID == "" {
-		return projectTarget{}, errors.New("No project selected. Run `agora project use <project>`, work inside a repo with `.agora/project.json`, or pass a project explicitly.")
+		return projectTarget{}, errNoProjectSelected
 	}
 	project, err := a.getProject(*ctx.CurrentProjectID)
 	if err != nil {

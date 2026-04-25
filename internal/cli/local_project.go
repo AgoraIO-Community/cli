@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -61,11 +62,19 @@ func writeLocalProjectBinding(root string, binding localProjectBinding) error {
 }
 
 func detectLocalProjectBinding() (localProjectBinding, bool, string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return localProjectBinding{}, false, "", err
+	return detectLocalProjectBindingFrom("")
+}
+
+func detectLocalProjectBindingFrom(start string) (localProjectBinding, bool, string, error) {
+	startPath := strings.TrimSpace(start)
+	if startPath == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return localProjectBinding{}, false, "", err
+		}
+		startPath = cwd
 	}
-	root, ok, err := detectLocalProjectRoot(cwd)
+	root, ok, err := detectLocalProjectRoot(startPath)
 	if err != nil || !ok {
 		return localProjectBinding{}, false, "", err
 	}
