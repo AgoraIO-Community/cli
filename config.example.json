@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "apiBaseUrl": "https://agora-cli.agora.io",
+  "browserAutoOpen": true,
+  "logLevel": "info",
+  "oauthBaseUrl": "https://sso2.agora.io",
+  "oauthClientId": "agora_web_cli",
+  "oauthScope": "basic_info,console",
+  "output": "pretty",
+  "telemetryEnabled": true,
+  "verbose": false
+}

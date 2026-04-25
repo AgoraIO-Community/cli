@@ -1,0 +1,16 @@
+.DS_Store
+
+# Local Go build and test artifacts
+.gocache/
+bin/
+dist/
+coverage.out
+*.test
+
+# Built CLI binaries
+agora
+agora-cli-go
+
+# IDE and editor files
+.idea/
+.vscode/
