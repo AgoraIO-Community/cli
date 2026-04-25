@@ -21,7 +21,6 @@ The command model is intentionally layered:
 - `project` for remote Agora resources and env export
 - `auth` for login and session inspection
 - `config` for local CLI defaults
-- `add` hidden and reserved for future in-place integrations into an existing codebase
 
 ## Install / Build
 
@@ -107,10 +106,6 @@ Handles login, logout, and current session inspection.
 
 Reads and updates local CLI defaults such as output mode, log level, and browser behavior.
 
-### `add`
-
-Hidden and reserved for future in-place integrations into an existing application. It is intentionally not part of the normal help surface today.
-
 ## Common Workflows
 
 ### Onboard a new demo
@@ -175,6 +170,38 @@ The CLI also writes repo-local project metadata to:
 - `.agora/project.json`
 
 That allows the CLI to detect which Agora project a cloned demo is bound to even when you are working inside the repo later.
+
+## Repo-Local Project Binding
+
+Project resolution precedence is consistent across commands:
+1. explicit `--project` or positional project argument
+2. repo-local `.agora/project.json` resolved from the target repo path
+3. global CLI context from `agora project use`
+
+The `.agora/project.json` file is created or updated by:
+- `agora init`
+- `agora quickstart create ... --project ...`
+- `agora quickstart env write ...`
+
+It stores durable non-secret metadata:
+- `projectId`
+- `projectName`
+- `region`
+- `template`
+- `envPath`
+
+Examples:
+
+```bash
+# Inside a bound quickstart repo
+./agora project show --json
+
+# From any directory, target a repo path directly
+./agora quickstart env write /abs/path/to/my-go-demo --json
+
+# Rebind a repo to a different project
+./agora quickstart env write /abs/path/to/my-go-demo --project my-other-project --json
+```
 
 ## Automation / Agent Usage
 
@@ -260,14 +287,11 @@ Quickstart env injection requires a project with an app certificate. If the sele
 If a command needs a project and none is currently selected, either:
 
 ```bash
+./agora quickstart env write my-go-demo --project my-project
 ./agora project use my-project
 ```
 
-or pass `--project` explicitly:
-
-```bash
-./agora quickstart env write my-go-demo --project my-project
-```
+or run it inside a repo that already has `.agora/project.json`.
 
 ## Migration
 

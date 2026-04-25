@@ -17,6 +17,25 @@ Use this guide for:
 - Use `agora project doctor --json` for readiness checks before continuing with automated setup.
 - In JSON mode, both success and failure return the same top-level envelope shape.
 
+Primary command groups:
+- `init`
+- `quickstart`
+- `project`
+- `auth`
+- `config`
+
+## Project Resolution Precedence
+
+Commands that require a project resolve context in this order:
+1. explicit `--project` or positional project argument
+2. repo-local `.agora/project.json` from the target repo path
+3. global CLI context selected by `agora project use`
+
+Agent guidance:
+- prefer explicit `--project` for deterministic cross-repo operations
+- rely on repo-local binding when operating repeatedly inside one bound quickstart
+- keep `metadataPath` from command results if you need to validate or audit project bindings
+
 ## JSON Envelope
 
 Commands that support structured output return a JSON envelope in this shape:
@@ -328,7 +347,7 @@ Safe branch fields:
 Example:
 
 ```bash
-./agora quickstart env write my-python-demo --json
+./agora quickstart env write /abs/path/to/my-python-demo --json
 ```
 
 Required `data` fields:
@@ -382,6 +401,8 @@ Required `data` fields:
 Optional fields:
 - `project`
   Nil during auth or project-selection failure paths.
+- `workspace`
+  Present in deep mode with repo-local binding and env consistency details.
 
 Safe branch fields:
 - `healthy`
@@ -395,6 +416,7 @@ Recommended agent behavior:
 - branch first on `status`
 - use `healthy` as a fast readiness boolean
 - inspect `blockingIssues[].suggestedCommand` for recovery suggestions
+- for repo-bound validation, run `project doctor --deep --json`
 
 ### `auth status`
 
