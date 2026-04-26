@@ -1,0 +1,34 @@
+class Agora < Formula
+  desc "Agora CLI for auth, project management, and quickstart workflows"
+  homepage "https://github.com/agora/cli-workspace/agora-cli-go"
+  version "__VERSION__"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_darwin_arm64.tar.gz"
+      sha256 "__SHA_DARWIN_ARM64__"
+    else
+      url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_darwin_amd64.tar.gz"
+      sha256 "__SHA_DARWIN_AMD64__"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_linux_arm64.tar.gz"
+      sha256 "__SHA_LINUX_ARM64__"
+    else
+      url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_linux_amd64.tar.gz"
+      sha256 "__SHA_LINUX_AMD64__"
+    end
+  end
+
+  def install
+    bin.install "agora"
+  end
+
+  test do
+    assert_match "Agora CLI", shell_output("#{bin}/agora --help")
+  end
+end
+

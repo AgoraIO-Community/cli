@@ -1,0 +1,20 @@
+cask "agora-cli-go" do
+  version "__VERSION__"
+
+  on_arm do
+    sha256 "__SHA_DARWIN_ARM64__"
+    url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_darwin_arm64.tar.gz"
+  end
+
+  on_intel do
+    sha256 "__SHA_DARWIN_AMD64__"
+    url "https://github.com/agora/cli-workspace/agora-cli-go/releases/download/v#{version}/agora-cli-go_v#{version}_darwin_amd64.tar.gz"
+  end
+
+  name "Agora CLI Go"
+  desc "Agora CLI for auth, project management, and quickstart workflows"
+  homepage "https://github.com/agora/cli-workspace/agora-cli-go"
+
+  binary "agora"
+end
+

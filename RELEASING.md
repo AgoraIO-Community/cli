@@ -35,6 +35,7 @@ Pushing a `v*` tag triggers the release workflow, which:
 - packages binaries for Linux, macOS, and Windows
 - generates SHA-256 checksums
 - publishes or updates the GitHub release automatically
+- can trigger Homebrew tap updates when `docs/homebrew.md` setup is configured
 
 ## Release Artifacts
 
@@ -61,3 +62,4 @@ go build -o agora .
 
 - Keep the command surface aligned with `agora-cli-ts` until the TypeScript CLI is fully retired.
 - Update the migration notes in `README.md` when the Go CLI becomes the default distribution.
+- Homebrew setup details are in `docs/homebrew.md`.

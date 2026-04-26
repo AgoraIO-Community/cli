@@ -1,0 +1,13 @@
+{
+  "name": "@agoraio/cli-win32-arm64",
+  "version": "0.0.0",
+  "description": "Agora CLI native binary — Windows arm64",
+  "os": ["win32"],
+  "cpu": ["arm64"],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

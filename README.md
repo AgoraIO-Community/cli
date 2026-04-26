@@ -238,6 +238,11 @@ Release workflow behavior:
 - the workflow runs tests, builds release binaries, packages them, and publishes a GitHub release automatically
 - release artifacts include checksums
 
+## Homebrew
+
+Homebrew distribution assets and automation are documented in:
+- [docs/homebrew.md](docs/homebrew.md)
+
 ## Configuration
 
 The CLI stores config, session, context, and logs under the Agora CLI config directory for the current machine.

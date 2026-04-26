@@ -105,3 +105,79 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*
+
+  publish-npm:
+    name: Publish npm packages
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Publish platform packages
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          publish_platform() {
+            local goos="$1" goarch="$2" npm_pkg="$3" bin_name="$4" archive_ext="$5"
+            local pkg_dir="packaging/npm/@agoraio/${npm_pkg}"
+            local archive="agora-cli-go_${GITHUB_REF_NAME}_${goos}_${goarch}.${archive_ext}"
+
+            if [ "$archive_ext" = "zip" ]; then
+              unzip -p "dist/${archive}" "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
+            else
+              tar -xzf "dist/${archive}" -O "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
+            fi
+            chmod +x "${pkg_dir}/bin/${bin_name}" 2>/dev/null || true
+
+            # stamp version into package.json
+            tmp=$(mktemp)
+            jq --arg v "$version" '.version = $v' "${pkg_dir}/package.json" > "$tmp"
+            mv "$tmp" "${pkg_dir}/package.json"
+
+            npm publish "${pkg_dir}" --access public
+          }
+
+          publish_platform darwin  arm64 cli-darwin-arm64 agora     tar.gz
+          publish_platform darwin  amd64 cli-darwin-x64   agora     tar.gz
+          publish_platform linux   arm64 cli-linux-arm64  agora     tar.gz
+          publish_platform linux   amd64 cli-linux-x64    agora     tar.gz
+          publish_platform windows amd64 cli-win32-x64    agora.exe zip
+          publish_platform windows arm64 cli-win32-arm64  agora.exe zip
+
+      - name: Publish wrapper package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          pkg_dir="packaging/npm/agoraio-cli"
+
+          # stamp version into package.json and pin optionalDependencies to exact version
+          tmp=$(mktemp)
+          jq --arg v "$version" '
+            .version = $v |
+            .optionalDependencies |= with_entries(.value = $v)
+          ' "${pkg_dir}/package.json" > "$tmp"
+          mv "$tmp" "${pkg_dir}/package.json"
+
+          npm publish "${pkg_dir}" --access public

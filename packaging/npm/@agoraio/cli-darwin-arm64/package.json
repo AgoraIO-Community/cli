@@ -1,0 +1,13 @@
+{
+  "name": "@agoraio/cli-darwin-arm64",
+  "version": "0.0.0",
+  "description": "Agora CLI native binary — macOS arm64",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
