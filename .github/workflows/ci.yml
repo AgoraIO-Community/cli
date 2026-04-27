@@ -102,11 +102,16 @@ jobs:
           trap 'kill "$server_pid"' EXIT
           sleep 2
 
+          # The installer enforces --proto =https in production. The smoke test
+          # serves the fixture from a local HTTP server, so we relax the proto
+          # restriction (test only).
+          export INSTALLER_CURL_PROTO_OPTS="--proto =http,https"
+
           VERSION="$version" \
           RELEASES_DOWNLOAD_BASE_URL="http://127.0.0.1:18080/download" \
           RELEASES_PAGE_URL="http://127.0.0.1:18080" \
           INSTALL_DIR="$install_dir" \
-          sh ./install.sh
+          sh ./install.sh --force
 
           "$install_dir/agora" --help >/dev/null
 
@@ -115,7 +120,7 @@ jobs:
             RELEASES_DOWNLOAD_BASE_URL="http://127.0.0.1:18080/download" \
             RELEASES_PAGE_URL="http://127.0.0.1:18080" \
             INSTALL_DIR="$bad_install_dir" \
-            sh ./install.sh; then
+            sh ./install.sh --force; then
             echo "Expected checksum verification to fail" >&2
             exit 1
           fi

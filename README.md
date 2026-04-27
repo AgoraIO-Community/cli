@@ -271,6 +271,15 @@ If a command needs a project and none is currently selected, either:
 
 or run it inside a repo that already has `.agora/project.json`.
 
+## Build From Source
+
+```bash
+go build -o agora .
+./agora --help
+```
+
+Requires the Go toolchain pinned in [go.mod](go.mod). For all install options (npm, Homebrew, direct installer, source) see [docs/install.md](docs/install.md).
+
 ## Migration
 
 This project mirrors the `agora-cli-ts` command surface in a native Go binary so the CLI no longer depends on the Node.js runtime.
