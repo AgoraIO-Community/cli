@@ -434,9 +434,6 @@ func TestCLIHelpSurfaceAndRemovedCommands(t *testing.T) {
 	if strings.Contains(result.stdout, "add") {
 		t.Fatalf("did not expect experimental add command in root help: %s", result.stdout)
 	}
-	if strings.Contains(result.stdout, "completion") {
-		t.Fatalf("did not expect completion command in help: %s", result.stdout)
-	}
 	for _, args := range [][]string{{"uap"}, {"rtm2"}, {"project", "onboard"}, {"add"}} {
 		result := runCLI(t, args, cliRunOptions{})
 		if result.exitCode != 1 || !strings.Contains(result.stderr, "unknown command") {

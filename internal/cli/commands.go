@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func (a *App) buildRoot() *cobra.Command {
@@ -22,7 +24,8 @@ func (a *App) buildRoot() *cobra.Command {
   init        Create a project and quickstart in one onboarding flow
 
 Use "agora init" for the fastest path to a runnable demo.
-Use "agora --help --all" to inspect the full command tree, including advanced low-level commands.`,
+Use "agora --help --all" to inspect the full command tree with descriptions and flags.
+Use "agora --help --all --json" for a machine-readable command tree (agent tooling).`,
 		Example: strings.TrimSpace(`
   agora login
   agora whoami
@@ -32,6 +35,7 @@ Use "agora --help --all" to inspect the full command tree, including advanced lo
   agora init my-go-demo --template go
   agora project doctor --json
   agora --help --all
+  agora --help --all --json
 `),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -42,7 +46,6 @@ Use "agora --help --all" to inspect the full command tree, including advanced lo
 			return nil
 		},
 	}
-	root.CompletionOptions.DisableDefaultCmd = true
 	root.Version = version
 	root.PersistentFlags().StringVar(&a.rootOutput, "output", "", "output mode for command results: pretty or json")
 	root.PersistentFlags().BoolVar(&a.rootJSON, "json", false, "shortcut for --output json")
@@ -59,14 +62,45 @@ Use "agora --help --all" to inspect the full command tree, including advanced lo
 	// `agora add` should behave as unknown command for now.
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if showAllHelp(cmd) && a.resolveOutputMode(cmd) == outputJSON {
+			globalFlags := make([]flagHelpInfo, 0)
+			cmd.Root().PersistentFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Hidden || f.Name == "help" || f.Name == "all" {
+					return
+				}
+				globalFlags = append(globalFlags, flagHelpInfo{
+					Name:    f.Name,
+					Type:    f.Value.Type(),
+					Default: nonTrivialDefault(f.DefValue),
+					Usage:   f.Usage,
+				})
+			})
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{
+				"global_flags": globalFlags,
+				"commands":     buildCommandTree(cmd.Root()),
+			})
+			return
+		}
 		defaultHelp(cmd, args)
 		if !showAllHelp(cmd) {
 			return
 		}
 		fmt.Fprintln(cmd.OutOrStdout())
 		fmt.Fprintln(cmd.OutOrStdout(), "Full Command Tree")
-		for _, line := range allCommandPaths(cmd.Root()) {
-			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", line)
+		for _, info := range buildCommandTree(cmd.Root()) {
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  %s\n", info.Path)
+			if info.Short != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", info.Short)
+			}
+			for _, f := range info.Flags {
+				if f.Default != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "    --%s %s  %s (default: %s)\n", f.Name, f.Type, f.Usage, f.Default)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "    --%s %s  %s\n", f.Name, f.Type, f.Usage)
+				}
+			}
 		}
 	})
 	return root
@@ -88,21 +122,62 @@ func showAllHelp(cmd *cobra.Command) bool {
 	return false
 }
 
-func allCommandPaths(root *cobra.Command) []string {
-	paths := []string{}
+type commandHelpInfo struct {
+	Path  string         `json:"path"`
+	Short string         `json:"short"`
+	Flags []flagHelpInfo `json:"flags"`
+}
+
+type flagHelpInfo struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Default string `json:"default,omitempty"`
+	Usage   string `json:"usage"`
+}
+
+func buildCommandTree(root *cobra.Command) []commandHelpInfo {
+	var result []commandHelpInfo
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
 		for _, child := range cmd.Commands() {
 			if child.Name() == "help" || child.Name() == "completion" {
 				continue
 			}
-			paths = append(paths, child.CommandPath())
+			result = append(result, commandHelpInfo{
+				Path:  child.CommandPath(),
+				Short: child.Short,
+				Flags: localFlagInfos(child),
+			})
 			walk(child)
 		}
 	}
 	walk(root)
-	sort.Strings(paths)
-	return paths
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result
+}
+
+func localFlagInfos(cmd *cobra.Command) []flagHelpInfo {
+	inherited := cmd.InheritedFlags()
+	flags := make([]flagHelpInfo, 0)
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden || f.Name == "help" || inherited.Lookup(f.Name) != nil {
+			return
+		}
+		flags = append(flags, flagHelpInfo{
+			Name:    f.Name,
+			Type:    f.Value.Type(),
+			Default: nonTrivialDefault(f.DefValue),
+			Usage:   f.Usage,
+		})
+	})
+	return flags
+}
+
+func nonTrivialDefault(v string) string {
+	if v == "" || v == "false" || v == "0" {
+		return ""
+	}
+	return v
 }
 
 func (a *App) buildLoginCommand(use string) *cobra.Command {
@@ -384,7 +459,7 @@ func (a *App) buildProjectCreate() *cobra.Command {
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
-				return errors.New("Project name is required for agora-cli 0.1.3.")
+				return errors.New("project name is required")
 			}
 			data, err := a.projectCreate(args[0], region, template, features)
 			if err != nil {

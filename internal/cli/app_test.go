@@ -419,7 +419,7 @@ func TestWaitForOAuthCallbackMismatchAndTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer timeoutServer.Close()
-	if _, err := timeoutServer.Wait(); err == nil || err.Error() != "Timed out waiting for the OAuth callback." {
+	if _, err := timeoutServer.Wait(); err == nil || !strings.HasPrefix(err.Error(), "Timed out waiting for the OAuth callback.") {
 		t.Fatalf("expected timeout error, got %v", err)
 	}
 }

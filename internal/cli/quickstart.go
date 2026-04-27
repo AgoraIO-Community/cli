@@ -399,10 +399,11 @@ func cloneQuickstartRepo(repoURL, targetDir string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		trimmed := strings.TrimSpace(string(output))
+		hint := "Ensure git is installed and you have network access to GitHub."
 		if trimmed == "" {
-			return fmt.Errorf("git clone failed for %s", repoURL)
+			return fmt.Errorf("git clone failed for %s. %s", repoURL, hint)
 		}
-		return fmt.Errorf("git clone failed for %s: %s", repoURL, trimmed)
+		return fmt.Errorf("git clone failed for %s (%s). %s", repoURL, trimmed, hint)
 	}
 	return nil
 }
@@ -435,7 +436,19 @@ func resolveQuickstartTemplateForPath(root, explicitTemplate string) (quickstart
 			return template, nil
 		}
 	}
-	return quickstartTemplate{}, errors.New("Could not detect the quickstart type from this directory. Pass `--template` explicitly.")
+	var hints []string
+	var ids []string
+	for _, t := range quickstartTemplates() {
+		if len(t.DetectPaths) > 0 {
+			hints = append(hints, fmt.Sprintf("%s (%s)", t.ID, t.DetectPaths[0]))
+		}
+		ids = append(ids, t.ID)
+	}
+	return quickstartTemplate{}, fmt.Errorf(
+		"could not detect the quickstart type from this directory (looked for %s). Pass --template %s to specify explicitly.",
+		strings.Join(hints, ", "),
+		strings.Join(ids, "|"),
+	)
 }
 
 func matchesQuickstartTemplate(root string, template quickstartTemplate) bool {
@@ -455,7 +468,7 @@ func seedQuickstartEnv(root string, template quickstartTemplate, project project
 		return "", "", fmt.Errorf("Quickstart template %q does not define an env target yet.", template.ID)
 	}
 	if project.SignKey == nil || *project.SignKey == "" {
-		return "", "", fmt.Errorf("Project %q does not have an app certificate.", project.Name)
+		return "", "", fmt.Errorf("project %q does not have an app certificate. Enable one in Agora Console or use a different project with `agora project use`.", project.Name)
 	}
 
 	examplePath := filepath.Join(root, filepath.FromSlash(template.EnvExamplePath))

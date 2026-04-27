@@ -55,7 +55,9 @@ func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
 	u.RawQuery = q.Encode()
 	fmt.Fprintf(os.Stderr, "Open this URL to continue login:\n%s\n", u.String())
 	if !noBrowser && a.env["AGORA_BROWSER_AUTO_OPEN"] != "0" {
-		_ = openBrowser(u.String())
+		if !openBrowser(u.String()) {
+			fmt.Fprintln(os.Stderr, "Browser did not open automatically. Copy the URL above or re-run with --no-browser.")
+		}
 	}
 	payload, err := callback.Wait()
 	if err != nil {
@@ -217,7 +219,7 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 	}()
 	go func() {
 		<-time.After(timeout)
-		errs <- errors.New("Timed out waiting for the OAuth callback.")
+		errs <- errors.New("Timed out waiting for the OAuth callback. Re-run with --no-browser to copy the URL manually, or check that your browser completed the login flow.")
 	}()
 	return cs, nil
 }
