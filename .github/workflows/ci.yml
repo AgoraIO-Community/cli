@@ -45,3 +45,128 @@ jobs:
             ext=".exe"
           fi
           go build -trimpath -o "dist/agora${ext}" .
+
+      - name: Check Unix installer syntax
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh -n install.sh
+
+      - name: Check PowerShell installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'install.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+
+      - name: Smoke test Unix installer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="0.0.0-ci"
+          goos="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64|amd64) goarch="amd64" ;;
+            aarch64|arm64) goarch="arm64" ;;
+            *) echo "Unsupported CI arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          fixture_root="$PWD/.tmp/install-fixture"
+          download_dir="$fixture_root/download/v${version}"
+          install_dir="$PWD/.tmp/install-bin"
+          bad_install_dir="$PWD/.tmp/install-bin-bad"
+          archive="agora-cli-go_v${version}_${goos}_${goarch}.tar.gz"
+
+          rm -rf "$fixture_root" "$install_dir" "$bad_install_dir"
+          mkdir -p "$download_dir"
+          tar -C dist -czf "$download_dir/$archive" agora
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$download_dir" && sha256sum "$archive" > checksums.txt)
+          else
+            (cd "$download_dir" && shasum -a 256 "$archive" > checksums.txt)
+          fi
+
+          python3 -m http.server 18080 --directory "$fixture_root" >/tmp/agora-install-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          sleep 2
+
+          VERSION="$version" \
+          RELEASES_DOWNLOAD_BASE_URL="http://127.0.0.1:18080/download" \
+          RELEASES_PAGE_URL="http://127.0.0.1:18080" \
+          INSTALL_DIR="$install_dir" \
+          sh ./install.sh
+
+          "$install_dir/agora" --help >/dev/null
+
+          printf '%064d  %s\n' 0 "$archive" > "$download_dir/checksums.txt"
+          if VERSION="$version" \
+            RELEASES_DOWNLOAD_BASE_URL="http://127.0.0.1:18080/download" \
+            RELEASES_PAGE_URL="http://127.0.0.1:18080" \
+            INSTALL_DIR="$bad_install_dir" \
+            sh ./install.sh; then
+            echo "Expected checksum verification to fail" >&2
+            exit 1
+          fi
+
+      - name: Smoke test PowerShell installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = '0.0.0-ci'
+          $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()) {
+            'x64' { 'amd64' }
+            'arm64' { 'arm64' }
+            default { throw "Unsupported CI arch: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
+          }
+
+          $fixtureRoot = Join-Path $PWD '.tmp/install-fixture'
+          $downloadDir = Join-Path $fixtureRoot "download/v$version"
+          $installDir = Join-Path $PWD '.tmp/install-bin'
+          $badInstallDir = Join-Path $PWD '.tmp/install-bin-bad'
+          $archive = "agora-cli-go_v$version" + "_windows_${arch}.zip"
+
+          Remove-Item -Recurse -Force $fixtureRoot, $installDir, $badInstallDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+
+          Compress-Archive -Path (Join-Path $PWD 'dist/agora.exe') -DestinationPath (Join-Path $downloadDir $archive) -Force
+          $hash = (Get-FileHash -Path (Join-Path $downloadDir $archive) -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path (Join-Path $downloadDir 'checksums.txt') -Value "$hash  $archive"
+
+          $server = Start-Process -FilePath python -ArgumentList '-m', 'http.server', '18081', '--directory', $fixtureRoot -PassThru
+          Start-Sleep -Seconds 2
+
+          try {
+            $env:VERSION = $version
+            $env:RELEASES_DOWNLOAD_BASE_URL = 'http://127.0.0.1:18081/download'
+            $env:RELEASES_PAGE_URL = 'http://127.0.0.1:18081'
+
+            & ./install.ps1 -InstallDir $installDir
+            & (Join-Path $installDir 'agora.exe') --help *> $null
+
+            Set-Content -Path (Join-Path $downloadDir 'checksums.txt') -Value ('0' * 64 + "  $archive")
+            $failedAsExpected = $false
+            try {
+              & ./install.ps1 -InstallDir $badInstallDir
+            } catch {
+              $failedAsExpected = $true
+            }
+
+            if (-not $failedAsExpected) {
+              throw 'Expected checksum verification to fail.'
+            }
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:VERSION, Env:RELEASES_DOWNLOAD_BASE_URL, Env:RELEASES_PAGE_URL -ErrorAction SilentlyContinue
+          }
