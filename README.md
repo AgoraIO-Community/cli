@@ -6,6 +6,18 @@ It supports both:
 - high-level setup with `init`
 - explicit low-level workflows with `project` and `quickstart`
 
+## Install
+
+Install with Homebrew (recommended):
+
+```bash
+brew tap agora/tap
+brew install agora
+agora --help
+```
+
+For all installation options, including source builds and cask usage, see [docs/install.md](docs/install.md).
+
 ## What This CLI Is
 
 Use this CLI when you want to:
@@ -22,7 +34,7 @@ The command model is intentionally layered:
 - `auth` for login and session inspection
 - `config` for local CLI defaults
 
-## Install / Build
+## Build From Source
 
 Build the native binary:
 

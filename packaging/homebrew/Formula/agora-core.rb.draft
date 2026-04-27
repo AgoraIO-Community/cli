@@ -1,0 +1,19 @@
+class Agora < Formula
+  desc "Agora CLI for auth, project management, and quickstart workflows"
+  homepage "https://github.com/agora/cli-workspace/agora-cli-go"
+  # Update url+sha256 for each release candidate submitted to homebrew/core.
+  url "https://github.com/agora/cli-workspace/agora-cli-go/archive/refs/tags/v__VERSION__.tar.gz"
+  sha256 "__SHA256__"
+  license "MIT"
+
+  depends_on "go" => :build
+
+  def install
+    system "go", "build", *std_go_args(ldflags: "-s -w"), "."
+  end
+
+  test do
+    assert_match "Agora CLI", shell_output("#{bin}/agora --help")
+  end
+end
+
