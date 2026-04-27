@@ -1,0 +1,117 @@
+name: Apt Repository
+
+# Runs after each published release to update the signed apt repo on GitHub Pages.
+# Users install via:
+#   curl -fsSL https://{owner}.github.io/agora-cli/apt/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/agora.gpg
+#   echo "deb [signed-by=/usr/share/keyrings/agora.gpg] https://{owner}.github.io/agora-cli/apt stable main" \
+#     | sudo tee /etc/apt/sources.list.d/agora.list
+#   sudo apt-get update && sudo apt-get install agora-cli
+#
+# Prerequisites (one-time setup):
+#   1. Generate a GPG key:
+#        gpg --batch --gen-key <<EOF
+#        Key-Type: RSA
+#        Key-Length: 4096
+#        Subkey-Type: RSA
+#        Subkey-Length: 4096
+#        Name-Real: Agora CLI
+#        Name-Email: devex@agora.io
+#        Expire-Date: 0
+#        %no-protection
+#        EOF
+#   2. Export and store the private key as secret APT_SIGNING_KEY:
+#        gpg --armor --export-secret-keys devex@agora.io
+#   3. Find the key ID (last 16 hex chars of fingerprint) and store as
+#      repository variable APT_SIGNING_KEY_ID.
+#   4. Enable GitHub Pages on this repo (Settings → Pages → Source: gh-pages branch).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-apt-repo:
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install apt tools
+        run: sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils
+
+      - name: Download .deb packages from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pool
+          gh release download "${{ github.ref_name }}" \
+            --pattern "*.deb" \
+            --dir pool \
+            --repo "${{ github.repository }}"
+
+      - name: Build apt repository structure
+        run: |
+          set -euo pipefail
+          mkdir -p apt-repo/pool/stable
+          cp pool/*.deb apt-repo/pool/stable/
+
+          for arch in amd64 arm64; do
+            dir="apt-repo/dists/stable/main/binary-${arch}"
+            mkdir -p "$dir"
+            dpkg-scanpackages --arch "$arch" apt-repo/pool/stable 2>/dev/null \
+              > "$dir/Packages"
+            gzip -9c "$dir/Packages" > "$dir/Packages.gz"
+          done
+
+          # Generate the Release metadata file
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="Agora" \
+            -o APT::FTPArchive::Release::Label="Agora CLI" \
+            -o APT::FTPArchive::Release::Suite="stable" \
+            -o APT::FTPArchive::Release::Codename="stable" \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+            -o APT::FTPArchive::Release::Components="main" \
+            release apt-repo/dists/stable \
+            > apt-repo/dists/stable/Release
+
+      - name: Sign Release with GPG
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_KEY_ID: ${{ vars.APT_SIGNING_KEY_ID }}
+        run: |
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
+
+          # InRelease: clearsigned (modern clients use this)
+          gpg --batch --yes \
+              --digest-algo SHA256 \
+              --clearsign \
+              -u "$APT_SIGNING_KEY_ID" \
+              --output apt-repo/dists/stable/InRelease \
+              apt-repo/dists/stable/Release
+
+          # Release.gpg: detached signature (legacy clients)
+          gpg --batch --yes \
+              --digest-algo SHA256 \
+              -abs \
+              -u "$APT_SIGNING_KEY_ID" \
+              --output apt-repo/dists/stable/Release.gpg \
+              apt-repo/dists/stable/Release
+
+          # Export public key for users to trust the repo
+          gpg --armor --export "$APT_SIGNING_KEY_ID" > apt-repo/gpg.key
+
+      # Publishes apt-repo/ to the /apt/ path on the gh-pages branch.
+      # Other content on gh-pages (e.g. project docs) is preserved.
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apt-repo
+          destination_dir: apt
+          keep_files: true
+          commit_message: "apt: update repository for ${{ github.ref_name }}"

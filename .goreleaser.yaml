@@ -1,0 +1,168 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agora-cli
+    binary: agora
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+# Preserve existing archive naming so Homebrew formulas, install scripts,
+# and the npm publish job all continue to work without changes.
+archives:
+  - id: agora-cli
+    ids: [agora-cli]
+    name_template: "agora-cli-go_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  draft: false
+  prerelease: auto
+  make_latest: true
+
+# ---------------------------------------------------------------------------
+# Homebrew tap
+# Requires: HOMEBREW_TAP_TOKEN secret (write access to the tap repo)
+# Requires: HOMEBREW_TAP_OWNER and HOMEBREW_TAP_NAME env vars (set in release.yml
+#           by splitting vars.HOMEBREW_TAP_REPO)
+# Replaces: .github/workflows/homebrew-tap.yml
+# ---------------------------------------------------------------------------
+brews:
+  - name: agora
+    ids: [agora-cli]
+    repository:
+      owner: "{{ .Env.HOMEBREW_TAP_OWNER }}"
+      name: "{{ .Env.HOMEBREW_TAP_NAME }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          branch: main
+    directory: Formula
+    homepage: https://agora.io
+    description: Agora developer onboarding CLI
+    license: MIT
+    skip_upload: "{{ if not .Env.HOMEBREW_TAP_OWNER }}true{{ end }}"
+    test: |
+      system "#{bin}/agora", "--help"
+    install: |
+      bin.install "agora"
+
+# ---------------------------------------------------------------------------
+# Scoop bucket (Windows)
+# Requires: SCOOP_BUCKET_TOKEN secret (write access to the bucket repo)
+# Requires: SCOOP_BUCKET_OWNER and SCOOP_BUCKET_NAME env vars (set in release.yml)
+# One-time setup: create the GitHub repo, e.g. {org}/scoop-bucket
+# ---------------------------------------------------------------------------
+scoops:
+  - name: agora-cli
+    ids: [agora-cli]
+    repository:
+      owner: "{{ .Env.SCOOP_BUCKET_OWNER }}"
+      name: "{{ .Env.SCOOP_BUCKET_NAME }}"
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    skip_upload: "{{ if not .Env.SCOOP_BUCKET_OWNER }}true{{ end }}"
+    homepage: https://agora.io
+    description: Agora developer onboarding CLI
+    license: MIT
+
+# ---------------------------------------------------------------------------
+# Linux packages (.deb, .rpm, .apk)
+# These land in the GitHub release as artifacts.
+# .deb files are also consumed by the apt-repo.yml workflow which publishes
+# a signed apt repository to GitHub Pages.
+# ---------------------------------------------------------------------------
+nfpms:
+  - id: linux-packages
+    ids: [agora-cli]
+    package_name: agora-cli
+    vendor: Agora
+    homepage: https://agora.io
+    maintainer: Agora DevEx <devex@agora.io>
+    description: |-
+      Agora developer onboarding CLI.
+      Manage authentication, remote projects, and quickstart workflows.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/local/bin
+
+# ---------------------------------------------------------------------------
+# Docker images → GitHub Container Registry (GHCR)
+# Requires: packages: write permission in release.yml
+# Images: ghcr.io/{owner}/agora-cli:{version} and :latest
+# ---------------------------------------------------------------------------
+dockers:
+  - id: linux-amd64
+    ids: [agora-cli]
+    goarch: amd64
+    use: buildx
+    dockerfile: Dockerfile
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+
+  - id: linux-arm64
+    ids: [agora-cli]
+    goarch: arm64
+    use: buildx
+    dockerfile: Dockerfile
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:{{ .Version }}-arm64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:latest"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:latest-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/agora-cli:latest-arm64"
