@@ -6,8 +6,8 @@ on:
       - "v*"
 
 permissions:
-  contents: write   # create GitHub release + push to Homebrew/Scoop tap
-  packages: write   # push to GitHub Container Registry
+  contents: write   # create GitHub release artifacts for installers
+  packages: write   # push to GitHub Container Registry (Docker)
 
 jobs:
   goreleaser:
@@ -39,21 +39,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Split vars.HOMEBREW_TAP_REPO (owner/name) into separate env vars
-      # for GoReleaser's brews block.
-      - name: Parse Homebrew tap repo
-        if: vars.HOMEBREW_TAP_REPO != ''
-        run: |
-          echo "HOMEBREW_TAP_OWNER=$(echo '${{ vars.HOMEBREW_TAP_REPO }}' | cut -d'/' -f1)" >> "$GITHUB_ENV"
-          echo "HOMEBREW_TAP_NAME=$(echo '${{ vars.HOMEBREW_TAP_REPO }}' | cut -d'/' -f2)" >> "$GITHUB_ENV"
-
-      # Split vars.SCOOP_BUCKET_REPO (owner/name) into separate env vars.
-      - name: Parse Scoop bucket repo
-        if: vars.SCOOP_BUCKET_REPO != ''
-        run: |
-          echo "SCOOP_BUCKET_OWNER=$(echo '${{ vars.SCOOP_BUCKET_REPO }}' | cut -d'/' -f1)" >> "$GITHUB_ENV"
-          echo "SCOOP_BUCKET_NAME=$(echo '${{ vars.SCOOP_BUCKET_REPO }}' | cut -d'/' -f2)" >> "$GITHUB_ENV"
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -62,81 +47,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
 
-  publish-npm:
-    name: Publish npm packages
-    needs: goreleaser
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Download binaries from release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p dist
-          gh release download "${{ github.ref_name }}" \
-            --pattern "agora-cli-go_*" \
-            --dir dist
-
-      - name: Publish platform packages
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-
-          publish_platform() {
-            local goos="$1" goarch="$2" npm_pkg="$3" bin_name="$4" archive_ext="$5"
-            local pkg_dir="packaging/npm/@agoraio/${npm_pkg}"
-            local archive="agora-cli-go_${GITHUB_REF_NAME}_${goos}_${goarch}.${archive_ext}"
-
-            if [ "$archive_ext" = "zip" ]; then
-              unzip -p "dist/${archive}" "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
-            else
-              tar -xzf "dist/${archive}" -O "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
-            fi
-            chmod +x "${pkg_dir}/bin/${bin_name}" 2>/dev/null || true
-
-            tmp=$(mktemp)
-            jq --arg v "$version" '.version = $v' "${pkg_dir}/package.json" > "$tmp"
-            mv "$tmp" "${pkg_dir}/package.json"
-
-            npm publish "${pkg_dir}" --access public
-          }
-
-          publish_platform darwin  arm64 cli-darwin-arm64 agora     tar.gz
-          publish_platform darwin  amd64 cli-darwin-x64   agora     tar.gz
-          publish_platform linux   arm64 cli-linux-arm64  agora     tar.gz
-          publish_platform linux   amd64 cli-linux-x64    agora     tar.gz
-          publish_platform windows amd64 cli-win32-x64    agora.exe zip
-          publish_platform windows arm64 cli-win32-arm64  agora.exe zip
-
-      - name: Publish wrapper package
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          pkg_dir="packaging/npm/agoraio-cli"
-
-          tmp=$(mktemp)
-          jq --arg v "$version" '
-            .version = $v |
-            .optionalDependencies |= with_entries(.value = $v)
-          ' "${pkg_dir}/package.json" > "$tmp"
-          mv "$tmp" "${pkg_dir}/package.json"
-
-          npm publish "${pkg_dir}" --access public
+  # npm publishing disabled until the npm distribution channel is supported again.
+  # publish-npm:
+  #   name: Publish npm packages
+  #   needs: goreleaser
+  #   runs-on: ubuntu-latest
+  #   ...
