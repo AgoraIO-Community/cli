@@ -3,7 +3,7 @@
 param(
     [string]$Version = $env:VERSION,
     [string]$InstallDir = $(if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\Agora\bin' }),
-    [string]$GitHubRepo = $(if ($env:GITHUB_REPO) { $env:GITHUB_REPO } else { 'AgoraIO-Extensions/agora-cli' }),
+    [string]$GitHubRepo = $(if ($env:GITHUB_REPO) { $env:GITHUB_REPO } else { 'AgoraIO-Community/cli' }),
     [switch]$AddToPath
 )
 
@@ -182,6 +182,7 @@ $tempDestinationBinary = Join-Path $InstallDir ('.agora.tmp.' + [System.Guid]::N
 try {
     Resolve-Version
     $fileName = "agora-cli-go_v$Version" + "_windows_${arch}.zip"
+    $archivePath = Join-Path $tempRoot $fileName
     $archiveUrl = "$($ReleasesDownloadBaseUrl.TrimEnd('/'))/v$Version/$fileName"
     $checksumsUrl = "$($ReleasesDownloadBaseUrl.TrimEnd('/'))/v$Version/checksums.txt"
 

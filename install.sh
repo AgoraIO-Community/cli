@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
-# Agora CLI installer for macOS and Linux.
+# Agora CLI installer for macOS, Linux, and Windows POSIX shells.
 #
 # Quick start:
-#   curl -fsSL https://raw.githubusercontent.com/AgoraIO-Extensions/agora-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh
 #
 # Pin a version:
 #   curl -fsSL .../install.sh | sh -s -- --version 0.1.4
@@ -25,8 +25,12 @@ fi
 INSTALLER_VERSION="2026.04.27"
 
 # ---- Defaults --------------------------------------------------------------
-GITHUB_REPO="${GITHUB_REPO:-AgoraIO-Extensions/agora-cli}"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+GITHUB_REPO="${GITHUB_REPO:-AgoraIO-Community/cli}"
+INSTALL_DIR_EXPLICIT=0
+if [ -n "${INSTALL_DIR+x}" ] && [ -n "${INSTALL_DIR-}" ]; then
+  INSTALL_DIR_EXPLICIT=1
+fi
+INSTALL_DIR="${INSTALL_DIR-}"
 VERSION="${VERSION:-}"
 SUDO="${SUDO:-sudo}"
 GITHUB_API_URL="${GITHUB_API_URL:-https://api.github.com}"
@@ -67,6 +71,9 @@ MANAGED_PATH=""
 MANAGED_UPGRADE_CMD=""
 OS=""
 ARCH=""
+ARCHIVE_EXT=""
+BINARY_NAME=""
+DOWNLOAD_TOOL=""
 
 # Color codes (initialized in init_colors).
 BOLD=""
@@ -164,14 +171,15 @@ usage() {
   cat <<EOF
 ${BOLD}Agora CLI installer${RESET} ${DIM}(rev ${INSTALLER_VERSION})${RESET}
 
-Install the Agora CLI on macOS or Linux.
+Install the Agora CLI on macOS, Linux, or Windows (Git Bash / MSYS2 / Cygwin).
 
 ${BOLD}Usage:${RESET}
   sh install.sh [options]
 
 ${BOLD}Options:${RESET}
   --version VERSION       Install a specific version (with or without leading 'v').
-  --dir INSTALL_DIR       Install directory (default: ${INSTALL_DIR}).
+  --dir INSTALL_DIR       Install directory (default: /usr/local/bin on macOS/Linux,
+                          \$HOME/bin on Windows POSIX shells).
   --prerelease            Resolve latest including prereleases.
   --list-versions         Print recent published versions and exit.
   --force                 Reinstall even if the requested version is already present,
@@ -186,7 +194,7 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Environment:${RESET}
   GITHUB_REPO                 GitHub repository (default: ${GITHUB_REPO}).
-  INSTALL_DIR                 Install directory (default: ${INSTALL_DIR}).
+  INSTALL_DIR                 Install directory (default: platform-specific).
   VERSION                     Version to install when --version is omitted.
   GITHUB_TOKEN / GH_TOKEN     Optional token to avoid GitHub API rate limits.
   SUDO                        Command for privileged installs (default: ${SUDO}).
@@ -201,7 +209,7 @@ ${BOLD}Exit codes:${RESET}
   ${EXIT_OK}  success
   ${EXIT_GENERIC}  generic / unknown error
   ${EXIT_USAGE}  invalid arguments
-  ${EXIT_MISSING_PREREQ}  missing prerequisite (curl, tar, sha256, ...)
+  ${EXIT_MISSING_PREREQ}  missing prerequisite (curl/wget, tar/unzip, sha256, ...)
   ${EXIT_UNSUPPORTED}  unsupported platform / architecture
   ${EXIT_NETWORK}  network or download failure
   ${EXIT_CHECKSUM}  checksum verification failed
@@ -233,10 +241,12 @@ parse_args() {
           die "Missing value for --dir" "$EXIT_USAGE"
         fi
         INSTALL_DIR=$2
+        INSTALL_DIR_EXPLICIT=1
         shift 2
         ;;
       --dir=*)
         INSTALL_DIR=${1#--dir=}
+        INSTALL_DIR_EXPLICIT=1
         shift
         ;;
       --prerelease)
@@ -299,6 +309,32 @@ normalize_version() {
   VERSION=$(printf '%s' "$VERSION" | sed 's/^v//')
 }
 
+platform_default_install_dir() {
+  case "$OS" in
+    windows) printf '%s\n' "$HOME/bin" ;;
+    *) printf '%s\n' "/usr/local/bin" ;;
+  esac
+}
+
+platform_fallback_install_dir() {
+  case "$OS" in
+    windows) printf '%s\n' "$HOME/bin" ;;
+    *)
+      if [ -d "$HOME/.local" ] || [ ! -e "$HOME/.local" ]; then
+        printf '%s\n' "$HOME/.local/bin"
+      else
+        printf '%s\n' "$HOME/bin"
+      fi
+      ;;
+  esac
+}
+
+ensure_install_dir_default() {
+  if [ -z "$INSTALL_DIR" ]; then
+    INSTALL_DIR=$(platform_default_install_dir)
+  fi
+}
+
 path_starts_with() {
   case "$1" in
     "$2") return 0 ;;
@@ -325,6 +361,18 @@ run_elevated() {
   $SUDO "$@"
 }
 
+detect_downloader() {
+  if command -v curl >/dev/null 2>&1; then
+    DOWNLOAD_TOOL="curl"
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    DOWNLOAD_TOOL="wget"
+    return 0
+  fi
+  die "Missing required command: curl or wget" "$EXIT_MISSING_PREREQ"
+}
+
 # ---- Download --------------------------------------------------------------
 # TLS hardening defaults. Tests can override INSTALLER_CURL_PROTO_OPTS to allow
 # non-HTTPS fixtures (e.g. a local HTTP server). Not intended for end users.
@@ -336,6 +384,24 @@ download_quiet() {
   url=$1
   output=$2
   mode=${3:-download}
+
+  if [ "$DOWNLOAD_TOOL" = "wget" ]; then
+    if [ "$mode" = "api" ] && [ -n "$AUTH_TOKEN" ]; then
+      wget -q -O "$output" \
+        --header='Accept: application/vnd.github+json' \
+        --header="Authorization: Bearer $AUTH_TOKEN" \
+        "$url"
+      return $?
+    fi
+    if [ "$mode" = "api" ]; then
+      wget -q -O "$output" \
+        --header='Accept: application/vnd.github+json' \
+        "$url"
+      return $?
+    fi
+    wget -q -O "$output" "$url"
+    return $?
+  fi
 
   if [ "$mode" = "api" ] && [ -n "$AUTH_TOKEN" ]; then
     # shellcheck disable=SC2086
@@ -359,6 +425,15 @@ download_quiet() {
 download_archive() {
   url=$1
   output=$2
+
+  if [ "$DOWNLOAD_TOOL" = "wget" ]; then
+    if [ -t 1 ] && [ "$QUIET" = "0" ]; then
+      wget -O "$output" "$url"
+      return $?
+    fi
+    wget -q -O "$output" "$url"
+    return $?
+  fi
 
   if [ -t 1 ] && [ "$QUIET" = "0" ]; then
     # shellcheck disable=SC2086
@@ -385,7 +460,7 @@ download_or_fail() {
     return 0
   fi
 
-  err "Download failed (curl exit $status): $url"
+  err "Download failed (${DOWNLOAD_TOOL} exit $status): $url"
   warn "Release page: ${RELEASES_PAGE_URL}"
   if [ "$mode" = "api" ]; then
     die "Could not reach the GitHub API. Set --version explicitly, or provide GITHUB_TOKEN / GH_TOKEN if you are hitting rate limits." "$EXIT_NETWORK"
@@ -424,13 +499,41 @@ user_can_write_install_dir() {
   [ -w "$probe" ]
 }
 
+fallback_to_user_install_dir() {
+  if [ "$INSTALL_DIR_EXPLICIT" = "1" ]; then
+    return 1
+  fi
+
+  default_dir=$(platform_default_install_dir)
+  if [ "$INSTALL_DIR" != "$default_dir" ]; then
+    return 1
+  fi
+
+  fallback_dir=$(platform_fallback_install_dir)
+  if [ "$fallback_dir" = "$INSTALL_DIR" ]; then
+    return 1
+  fi
+
+  warn "Install directory ${INSTALL_DIR} is not writable; falling back to ${fallback_dir}."
+  INSTALL_DIR=$fallback_dir
+  return 0
+}
+
 ensure_install_dir_writable() {
   USE_SUDO=0
   if user_can_write_install_dir; then
     return 0
   fi
 
+  if [ "$OS" = "windows" ]; then
+    die "Install directory ${INSTALL_DIR} is not writable. Set INSTALL_DIR to a writable path." "$EXIT_INSTALL"
+  fi
+
   if [ -z "$SUDO" ]; then
+    if fallback_to_user_install_dir && user_can_write_install_dir; then
+      say "Using user-writable install directory: ${INSTALL_DIR}"
+      return 0
+    fi
     die "Install directory ${INSTALL_DIR} is not writable. Set INSTALL_DIR to a writable path or set SUDO." "$EXIT_INSTALL"
   fi
 
@@ -438,9 +541,17 @@ ensure_install_dir_writable() {
   # shellcheck disable=SC2086
   set -- $SUDO
   if [ $# -eq 0 ]; then
+    if fallback_to_user_install_dir && user_can_write_install_dir; then
+      say "Using user-writable install directory: ${INSTALL_DIR}"
+      return 0
+    fi
     die "SUDO is empty. Set INSTALL_DIR to a writable path or configure SUDO." "$EXIT_INSTALL"
   fi
   if ! command -v "$1" >/dev/null 2>&1; then
+    if fallback_to_user_install_dir && user_can_write_install_dir; then
+      say "Using user-writable install directory: ${INSTALL_DIR}"
+      return 0
+    fi
     die "${1} not found on PATH. Set INSTALL_DIR to a writable path or set SUDO to a different elevation tool." "$EXIT_INSTALL"
   fi
 
@@ -448,6 +559,10 @@ ensure_install_dir_writable() {
   # downloading so the user is not surprised by a sudo prompt mid-install.
   if ! [ -t 0 ]; then
     if ! run_elevated -n true >/dev/null 2>&1; then
+      if fallback_to_user_install_dir && user_can_write_install_dir; then
+        say "Using user-writable install directory: ${INSTALL_DIR}"
+        return 0
+      fi
       err "${INSTALL_DIR} requires elevated permissions, but this shell has no TTY for a sudo prompt."
       say "  Re-run interactively, or use a writable INSTALL_DIR. For example:"
       say "    ${GREEN}curl -fsSL .../install.sh | INSTALL_DIR=\"\$HOME/.local/bin\" sh${RESET}"
@@ -483,6 +598,15 @@ install_binary() {
     chmod 755 "$temp_dest"
   fi
   mv -f "$temp_dest" "$final_dest"
+}
+
+extract_archive() {
+  archive_path=$1
+  if [ "$OS" = "windows" ]; then
+    unzip -oq "$archive_path" "$BINARY_NAME" -d "$TMP" || return 1
+    return 0
+  fi
+  tar -xzf "$archive_path" -C "$TMP" "$BINARY_NAME"
 }
 
 # ---- Existing install detection --------------------------------------------
@@ -577,6 +701,11 @@ already_at_target_version() {
 }
 
 # ---- Version resolution ----------------------------------------------------
+first_tag_name_from_json() {
+  json_path=$1
+  grep -m 1 '"tag_name"' "$json_path" 2>/dev/null | cut -d '"' -f 4 | sed -n '1p' || true
+}
+
 resolve_version() {
   if [ "$PRERELEASE" = "1" ]; then
     url="${GITHUB_API_URL%/}/repos/${GITHUB_REPO}/releases?per_page=10"
@@ -586,11 +715,8 @@ resolve_version() {
   json="${TMP}/latest.json"
   download_or_fail "$url" "$json" api
 
-  VERSION=$(
-    sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' "$json" \
-      | sed -n '1p'
-  )
-  normalize_version
+  VERSION=$(first_tag_name_from_json "$json")
+  VERSION=${VERSION#v}
 
   if [ -z "$VERSION" ]; then
     die "Could not parse the latest release version. Set --version explicitly." "$EXIT_NETWORK"
@@ -603,7 +729,7 @@ list_versions_and_exit() {
   download_or_fail "$url" "$json" api
 
   say "Recent ${GITHUB_REPO} releases:"
-  sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v[^"]*\)".*/  \1/p' "$json"
+  grep '"tag_name"' "$json" 2>/dev/null | cut -d '"' -f 4 | sed 's/^/  /'
   exit "$EXIT_OK"
 }
 
@@ -615,7 +741,7 @@ detect_platform() {
   case "$OS" in
     darwin|linux) ;;
     msys*|mingw*|cygwin*)
-      die "Windows detected from a POSIX shell. Use install.ps1 (PowerShell), Scoop, or npm instead." "$EXIT_UNSUPPORTED"
+      OS="windows"
       ;;
     *)
       die "Unsupported OS: ${OS}. Try Homebrew, npm, Scoop, or a release package." "$EXIT_UNSUPPORTED"
@@ -626,9 +752,22 @@ detect_platform() {
     x86_64|amd64)  ARCH="amd64" ;;
     aarch64|arm64) ARCH="arm64" ;;
     *)
-      die "Unsupported architecture: ${ARCH}." "$EXIT_UNSUPPORTED"
+      die "Unsupported architecture: ${ARCH}. Supported architectures: amd64 and arm64." "$EXIT_UNSUPPORTED"
       ;;
   esac
+
+  case "$OS" in
+    windows)
+      ARCHIVE_EXT="zip"
+      BINARY_NAME="agora.exe"
+      ;;
+    *)
+      ARCHIVE_EXT="tar.gz"
+      BINARY_NAME="agora"
+      ;;
+  esac
+
+  ensure_install_dir_default
 }
 
 # ---- PATH guidance ---------------------------------------------------------
@@ -651,7 +790,7 @@ shell_path_line() {
     shell_name=$(basename "$SHELL" 2>/dev/null || true)
   fi
   case "$shell_name" in
-    fish) printf 'fish_add_path %s\n' "$INSTALL_DIR" ;;
+    fish) printf 'fish_add_path "%s"\n' "$INSTALL_DIR" ;;
     *)    printf 'export PATH="%s:$PATH"\n' "$INSTALL_DIR" ;;
   esac
 }
@@ -718,11 +857,18 @@ main() {
     reset_colors
   fi
 
-  need_cmd curl
-  need_cmd tar
+  detect_platform
+  detect_downloader
   need_cmd awk
+  need_cmd cut
+  need_cmd grep
   need_cmd sed
   need_cmd uname
+  if [ "$OS" = "windows" ]; then
+    need_cmd unzip
+  else
+    need_cmd tar
+  fi
 
   TMP=$(mktemp -d)
   trap cleanup EXIT HUP INT TERM
@@ -731,7 +877,6 @@ main() {
     list_versions_and_exit
   fi
 
-  detect_platform
   print_banner
 
   normalize_version
@@ -744,16 +889,18 @@ main() {
     die "VERSION cannot be empty." "$EXIT_USAGE"
   fi
 
-  FILENAME="agora-cli-go_v${VERSION}_${OS}_${ARCH}.tar.gz"
+  FILENAME="agora-cli-go_v${VERSION}_${OS}_${ARCH}.${ARCHIVE_EXT}"
   ARCHIVE_URL="${RELEASES_DOWNLOAD_BASE_URL%/}/v${VERSION}/${FILENAME}"
   CHECKSUMS_URL="${RELEASES_DOWNLOAD_BASE_URL%/}/v${VERSION}/checksums.txt"
   ARCHIVE_PATH="${TMP}/${FILENAME}"
   CHECKSUMS_PATH="${TMP}/checksums.txt"
-  EXTRACTED_BINARY="${TMP}/agora"
-  DESTINATION="${INSTALL_DIR}/agora"
-  TEMP_DESTINATION="${INSTALL_DIR}/.agora.tmp.$$"
+  EXTRACTED_BINARY="${TMP}/${BINARY_NAME}"
 
   show_existing_install
+
+  ensure_install_dir_writable
+  DESTINATION="${INSTALL_DIR}/${BINARY_NAME}"
+  TEMP_DESTINATION="${INSTALL_DIR}/.${BINARY_NAME}.tmp.$$"
 
   # Idempotence: if the requested version is already at the target path, exit
   # early. This runs before the managed-install guard so re-running over a
@@ -766,7 +913,6 @@ main() {
   fi
 
   guard_managed_install
-  ensure_install_dir_writable
 
   if [ "$DRY_RUN" = "1" ]; then
     say_step "Dry run - no changes will be made."
@@ -823,8 +969,8 @@ main() {
   say_ok "sha256 ${ACTUAL_SHA}"
 
   say_step "Extracting..."
-  if ! tar -xzf "$ARCHIVE_PATH" -C "$TMP" agora; then
-    die "Could not extract agora from ${FILENAME}." "$EXIT_INSTALL"
+  if ! extract_archive "$ARCHIVE_PATH"; then
+    die "Could not extract ${BINARY_NAME} from ${FILENAME}." "$EXIT_INSTALL"
   fi
   if [ ! -f "$EXTRACTED_BINARY" ]; then
     die "Expected binary not found after extraction." "$EXIT_INSTALL"
