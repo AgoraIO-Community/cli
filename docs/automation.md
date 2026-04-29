@@ -1,6 +1,6 @@
 # Automation Contract
 
-This document defines the machine-consumption contract for `agora-cli-go`.
+This document defines the machine-consumption contract for Agora CLI.
 
 Use this guide for:
 - CI jobs
@@ -17,6 +17,7 @@ Use this guide for:
 - Use `agora --help --all --json` for a machine-readable command tree with all flags — the primary capability discovery mechanism for agents.
 - Use `agora project doctor --json` for readiness checks before continuing with automated setup.
 - In JSON mode, both success and failure return the same top-level envelope shape.
+- Interactive login prompts only appear in interactive pretty-mode runs. Automation should still authenticate up front with `agora login`; `--json`, `AGORA_OUTPUT=json`, and non-TTY runs never prompt.
 
 Primary command groups:
 - `init`
@@ -114,7 +115,7 @@ Example:
 ./agora init my-nextjs-demo --template nextjs --new-project --json
 ```
 
-By default `init` reuses an existing project — preferring one named `"Default Project"`, then the most recent project. Pass `--new-project` to force creation. Use `--project <name|id>` to bind to a specific project.
+By default `init` reuses an existing project — preferring one named `"Default Project"`, then the project with the latest `createdAt` value from the current results page. Pass `--new-project` to force creation. Use `--project <name|id>` to bind to a specific project.
 
 Required `data` fields:
 - `action`

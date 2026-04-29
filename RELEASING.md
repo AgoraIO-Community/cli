@@ -1,4 +1,4 @@
-# Releasing Agora CLI Go
+# Releasing Agora CLI
 
 Releases are fully automated via GoReleaser. Pushing a `v*` tag is the only manual step.
 

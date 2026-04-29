@@ -2,7 +2,7 @@
 
 ## Repo Purpose
 
-`agora-cli-go` is the next-generation native CLI for Agora developer onboarding. It ships as a single binary with no runtime dependencies and is the primary distribution going forward. It is feature-parity with (and successor to) the TypeScript CLI `agoraio-cli`.
+This repository contains Agora CLI, the native CLI for Agora developer onboarding. It ships as a single binary with no runtime dependencies and is the primary distribution going forward. It is feature-parity with (and successor to) the TypeScript CLI `agoraio-cli`.
 
 ## Quick Reference
 

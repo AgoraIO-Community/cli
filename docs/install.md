@@ -1,4 +1,4 @@
-# Install Agora CLI Go
+# Install Agora CLI
 
 This page lists the supported installation paths for Agora CLI and the direct installers for macOS, Linux, and Windows.
 
