@@ -9,21 +9,21 @@ This page lists the supported installation paths for Agora CLI and the direct in
 Install the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh -s -- --add-to-path
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --add-to-path
 agora --help
 ```
 
 Install a pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh -s -- --version 0.1.4
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --version 0.1.4
 agora --help
 ```
 
 Install to a user-writable directory and let the installer add it to your shell rc:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh \
   | INSTALL_DIR="$HOME/.local/bin" sh -s -- --add-to-path
 agora --help
 ```
@@ -31,7 +31,7 @@ agora --help
 Run a dry run before installing:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --dry-run
 ```
 
 The shell installer supports macOS, Linux, and Windows POSIX shells such as Git Bash, MSYS2, and Cygwin. On macOS and Linux, the default install directory is `/usr/local/bin`; when that directory requires elevation and `sudo` is unavailable in the current shell, the installer falls back to a user-writable directory such as `$HOME/.local/bin`. On Windows POSIX shells, the default install directory is `$HOME/bin` and the installed binary is `agora.exe`.
@@ -43,7 +43,7 @@ The shell installer is idempotent. Re-running with the same `--version` will det
 Install the latest release:
 
 ```powershell
-irm https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1 | iex
 agora --help
 ```
 
@@ -51,7 +51,7 @@ Install a pinned version and add the default install directory to your user PATH
 
 ```powershell
 $env:VERSION = "0.1.4"
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.ps1))) -AddToPath
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1))) -AddToPath
 agora --help
 ```
 
@@ -144,7 +144,7 @@ GITHUB_TOKEN=your-token-here VERSION=0.1.4 sh install.sh
 ```powershell
 $env:GITHUB_TOKEN = "your-token-here"
 $env:VERSION = "0.1.4"
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.ps1)))
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1)))
 ```
 
 ### Permission errors
