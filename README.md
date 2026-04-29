@@ -1,4 +1,4 @@
-# Agora CLI Go
+# Agora CLI
 
 Native Agora CLI for authentication, project management, quickstart setup, and developer onboarding.
 
@@ -30,6 +30,7 @@ agora init my-nextjs-demo --template nextjs
 
 ## Docs
 
+- Release notes: [CHANGELOG.md](CHANGELOG.md)
 - Install options (direct installer, Windows, source): [docs/install.md](docs/install.md)
 - Automation and JSON contract: [docs/automation.md](docs/automation.md)
 
