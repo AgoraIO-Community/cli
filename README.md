@@ -5,7 +5,7 @@ Native Agora CLI for authentication, project management, quickstart setup, and d
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh -s -- --add-to-path
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --add-to-path
 ```
 
 Run the CLI:
@@ -18,7 +18,7 @@ Notes:
 
 - The shell installer supports macOS, Linux, and Windows POSIX shells such as Git Bash. Use `install.ps1` for native PowerShell installs on Windows.
 - If the installer says `agora` is not on your PATH, re-run with `--add-to-path` or add the printed install directory to your shell profile.
-- Installer help is always available with `curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh -s -- --help`.
+- Installer help is always available with `curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --help`.
 - Pinned versions, dry runs, custom install directories, and source builds are documented in [docs/install.md](docs/install.md).
 
 ## First Run
