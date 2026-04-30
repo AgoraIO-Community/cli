@@ -53,21 +53,13 @@ type cliRunOptions struct {
 
 // TestCLIHelperProcess is the in-process re-entry point used by runCLI.
 // When invoked with GO_WANT_CLI_HELPER_PROCESS=1, it builds a fresh *App
-// and runs Execute() with the args after `--`; otherwise it returns
-// immediately so it does not show up as a regular test.
+// and runs Execute() with the args passed through GO_CLI_HELPER_ARGS_JSON;
+// otherwise it returns immediately so it does not show up as a regular test.
 func TestCLIHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") != "1" {
 		return
 	}
-	args := os.Args
-	index := 0
-	for i, arg := range args {
-		if arg == "--" {
-			index = i + 1
-			break
-		}
-	}
-	cliArgs := args[index:]
+	cliArgs := helperCLIArgs(t)
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 	os.Args = append([]string{"agora"}, cliArgs...)
@@ -95,6 +87,24 @@ func TestCLIHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func helperCLIArgs(t *testing.T) []string {
+	t.Helper()
+	if raw := os.Getenv("GO_CLI_HELPER_ARGS_JSON"); raw != "" {
+		var args []string
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			t.Fatalf("invalid GO_CLI_HELPER_ARGS_JSON: %v", err)
+		}
+		return args
+	}
+	// Fallback for manually invoking the helper while debugging.
+	for i, arg := range os.Args {
+		if arg == "--" {
+			return os.Args[i+1:]
+		}
+	}
+	return nil
+}
+
 // runCLI spawns the test binary as a subprocess that reroutes through
 // TestCLIHelperProcess, captures stdout/stderr line-by-line, and returns
 // the exit code. The optional onStderr callback is invoked on every stderr
@@ -106,8 +116,13 @@ func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 	if options.workdir != "" {
 		cmd.Dir = options.workdir
 	}
+	encodedArgs, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd.Env = append(os.Environ(),
 		"GO_WANT_CLI_HELPER_PROCESS=1",
+		"GO_CLI_HELPER_ARGS_JSON="+string(encodedArgs),
 		// Keep integration tests deterministic when the suite itself runs in CI.
 		// Unit tests cover CI auto-detection explicitly; command-surface tests
 		// should not silently switch from pretty to JSON because CI=true leaked
