@@ -190,8 +190,32 @@ jobs:
           $hash = (Get-FileHash -Path (Join-Path $downloadDir $archive) -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -Path (Join-Path $downloadDir 'checksums.txt') -Value "$hash  $archive"
 
-          $server = Start-Process -FilePath python -ArgumentList '-m', 'http.server', '18081', '--directory', $fixtureRoot -PassThru
-          Start-Sleep -Seconds 2
+          $serverOutLog = Join-Path $fixtureRoot 'http-server.out.log'
+          $serverErrLog = Join-Path $fixtureRoot 'http-server.err.log'
+          $server = Start-Process -FilePath python -ArgumentList '-m', 'http.server', '18081', '--directory', $fixtureRoot -RedirectStandardOutput $serverOutLog -RedirectStandardError $serverErrLog -PassThru
+          $archiveUrl = "http://127.0.0.1:18081/download/v$version/$archive"
+          $serverReady = $false
+          for ($attempt = 1; $attempt -le 20; $attempt++) {
+            if ($server.HasExited) {
+              if (Test-Path -LiteralPath $serverOutLog) { Get-Content -Path $serverOutLog | ForEach-Object { Write-Host $_ } }
+              if (Test-Path -LiteralPath $serverErrLog) { Get-Content -Path $serverErrLog | ForEach-Object { Write-Host $_ } }
+              throw "Fixture HTTP server exited before serving $archiveUrl."
+            }
+            try {
+              $response = Invoke-WebRequest -Uri $archiveUrl -Method Head -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                $serverReady = $true
+                break
+              }
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          if (-not $serverReady) {
+            if (Test-Path -LiteralPath $serverOutLog) { Get-Content -Path $serverOutLog | ForEach-Object { Write-Host $_ } }
+            if (Test-Path -LiteralPath $serverErrLog) { Get-Content -Path $serverErrLog | ForEach-Object { Write-Host $_ } }
+            throw "Fixture HTTP server did not serve $archiveUrl."
+          }
 
           try {
             $env:VERSION = $version
@@ -199,6 +223,9 @@ jobs:
             $env:RELEASES_PAGE_URL = 'http://127.0.0.1:18081'
 
             & ./install.ps1 -InstallDir $installDir
+            if ($LASTEXITCODE -ne 0) {
+              throw "install.ps1 failed with exit code $LASTEXITCODE."
+            }
             & (Join-Path $installDir 'agora.exe') --help *> $null
 
             Set-Content -Path (Join-Path $downloadDir 'checksums.txt') -Value ('0' * 64 + "  $archive")
