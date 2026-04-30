@@ -189,7 +189,8 @@ If a current project context exists, or if --project is passed, the CLI also wri
 			if strings.TrimSpace(targetDir) == "" {
 				targetDir = args[0]
 			}
-			result, err := a.quickstartCreate(*template, targetDir, project, ref)
+			progress := jsonProgressFor(a, cmd, "quickstart create")
+			result, err := a.quickstartCreate(*template, targetDir, project, ref, progress)
 			if err != nil {
 				return err
 			}
@@ -259,7 +260,7 @@ Python and Go quickstarts receive backend APP_ID and APP_CERTIFICATE values.`,
 	return cmd
 }
 
-func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitProject string, ref string) (map[string]any, error) {
+func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitProject string, ref string, progress progressEmitter) (map[string]any, error) {
 	if !template.Available || strings.TrimSpace(template.RepoURL) == "" {
 		return nil, &cliError{Message: fmt.Sprintf("Quickstart template %q is not available yet.", template.ID), Code: "QUICKSTART_TEMPLATE_UNAVAILABLE"}
 	}
@@ -283,9 +284,11 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	}
 
 	repoURL := a.quickstartRepoURL(template)
+	progress.emit("clone:start", "Cloning quickstart repository", map[string]any{"repoUrl": repoURL, "targetPath": absTarget, "ref": ref})
 	if err := cloneQuickstartRepo(repoURL, absTarget, ref); err != nil {
 		return nil, err
 	}
+	progress.emit("clone:complete", "Quickstart repository cloned", map[string]any{"targetPath": absTarget})
 
 	written := []string{".git"}
 	envStatus := "template-only"

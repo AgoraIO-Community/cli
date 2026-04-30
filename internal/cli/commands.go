@@ -2,14 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 func (a *App) buildRoot() *cobra.Command {
@@ -54,6 +51,12 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			mode := a.resolveOutputMode(cmd)
+			// --verbose mirrors AGORA_VERBOSE=1: echoes structured logs to
+			// stderr in addition to writing them to the log file. Setting
+			// it on a.env is enough because appendAppLog reads from there.
+			if a.rootVerbose {
+				a.env["AGORA_VERBOSE"] = "1"
+			}
 			ctx := context.WithValue(cmd.Context(), contextKeyOutputMode{}, mode)
 			ctx = context.WithValue(ctx, contextKeyJSONPretty{}, a.rootPrettyJSON)
 			ctx = context.WithValue(ctx, contextKeyQuiet{}, a.rootQuiet)
@@ -66,8 +69,9 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	root.PersistentFlags().StringVar(&a.rootOutput, "output", "", "output mode for command results: pretty or json")
 	root.PersistentFlags().BoolVar(&a.rootJSON, "json", false, "shortcut for --output json")
 	root.PersistentFlags().BoolVar(&a.rootPrettyJSON, "pretty", false, "pretty-print JSON output when used with --json")
-	root.PersistentFlags().BoolVar(&a.rootQuiet, "quiet", false, "suppress non-error pretty output")
+	root.PersistentFlags().BoolVar(&a.rootQuiet, "quiet", false, "suppress success output (both pretty and JSON envelopes); rely on exit code. Errors still print on stderr.")
 	root.PersistentFlags().BoolVar(&a.rootNoColor, "no-color", false, "disable ANSI color in pretty output")
+	root.PersistentFlags().BoolVar(&a.rootVerbose, "verbose", false, "echo structured logs to stderr (equivalent to AGORA_VERBOSE=1); does not change exit codes or JSON envelopes")
 	root.PersistentFlags().Bool("all", false, "show the full command tree in help output")
 	root.PersistentFlags().BoolVar(&a.rootUpgradeCheck, "upgrade-check", false, "print non-interactive upgrade guidance and exit")
 	root.AddCommand(a.buildLoginCommand("login"))
@@ -81,33 +85,16 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	root.AddCommand(a.buildVersionCommand())
 	root.AddCommand(a.buildIntrospectCommand())
 	root.AddCommand(a.buildTelemetryCommand())
-	root.AddCommand(a.buildUpgradeCommand("upgrade"))
-	root.AddCommand(a.buildUpgradeCommand("update"))
+	root.AddCommand(a.buildUpgradeCommand())
 	root.AddCommand(a.buildOpenCommand())
 	// Keep "add" unregistered until it has a real implementation. Calls to
 	// `agora add` should behave as unknown command for now.
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if showAllHelp(cmd) && a.resolveOutputMode(cmd) == outputJSON {
-			globalFlags := make([]flagHelpInfo, 0)
-			cmd.Root().PersistentFlags().VisitAll(func(f *pflag.Flag) {
-				if f.Hidden || f.Name == "help" || f.Name == "all" {
-					return
-				}
-				globalFlags = append(globalFlags, flagHelpInfo{
-					Name:    f.Name,
-					Type:    f.Value.Type(),
-					Default: nonTrivialDefault(f.DefValue),
-					Usage:   f.Usage,
-				})
-			})
-			enc := json.NewEncoder(cmd.OutOrStdout())
-			enc.SetIndent("", "  ")
-			_ = enc.Encode(map[string]any{
-				"global_flags": globalFlags,
-				"commands":     buildCommandTree(cmd.Root()),
-				"version":      versionInfo(),
-			})
+			// Unified discovery: --help --all --json emits the same envelope as
+			// `agora introspect --json` so agents only handle one schema.
+			_ = emitEnvelope(cmd.OutOrStdout(), "introspect", buildIntrospectionData(cmd.Root()), jsonPrettyFromContext(cmd))
 			return
 		}
 		defaultHelp(cmd, args)
@@ -133,22 +120,8 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	return root
 }
 
-func showAllHelp(cmd *cobra.Command) bool {
-	if flag := cmd.Flags().Lookup("all"); flag != nil {
-		value, err := cmd.Flags().GetBool("all")
-		if err == nil {
-			return value
-		}
-	}
-	if flag := cmd.InheritedFlags().Lookup("all"); flag != nil {
-		value, err := cmd.InheritedFlags().GetBool("all")
-		if err == nil {
-			return value
-		}
-	}
-	return false
-}
-
+// example trims leading/trailing newlines off a multi-line raw-string
+// example so it slots cleanly into Cobra's Example field.
 func example(value string) string {
 	return strings.Trim(value, "\n")
 }
@@ -163,28 +136,6 @@ func (a *App) buildVersionCommand() *cobra.Command {
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return renderResult(cmd, "version", versionInfo())
-		},
-	}
-}
-
-func (a *App) buildIntrospectCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "introspect",
-		Short: "Emit machine-readable command metadata",
-		Long:  "Emit command paths, flag metadata, stable command labels, and known enums for agent tooling.",
-		Example: example(`
-  agora introspect --json
-`),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return renderResult(cmd, "introspect", map[string]any{
-				"commands": buildCommandTree(cmd.Root()),
-				"enums": map[string][]string{
-					"features":     {"rtc", "rtm", "convoai"},
-					"outputModes":  {"pretty", "json"},
-					"doctorStatus": {"healthy", "warning", "not_ready", "auth_error"},
-				},
-				"version": versionInfo(),
-			})
 		},
 	}
 }
@@ -260,25 +211,34 @@ func (a *App) setTelemetry(cmd *cobra.Command, enabled bool) error {
 	})
 }
 
-func (a *App) buildUpgradeCommand(use string) *cobra.Command {
-	return &cobra.Command{
-		Use:   use,
-		Short: "Show the recommended CLI upgrade command",
-		Long:  "Detect the likely install method and print the command to upgrade Agora CLI. Managed package installations are delegated to their package manager.",
+func (a *App) buildUpgradeCommand() *cobra.Command {
+	var check bool
+	cmd := &cobra.Command{
+		Use:     "upgrade",
+		Aliases: []string{"update"},
+		Short:   "Upgrade Agora CLI in place when installer-managed; otherwise print upgrade guidance",
+		Long: `Upgrade Agora CLI to the latest release.
+
+When the binary was installed with install.sh / install.ps1, this command performs an in-place self-update: download the new archive, verify its SHA-256 against the published checksums.txt, and atomically replace the running binary. The same primitives the installer uses.
+
+For Homebrew, npm, and other package-manager-managed installs, the command prints the recommended upgrade command and exits successfully (status: "manual"). It will not shadow a managed install.
+
+Use --check to resolve the latest version and report what would happen without writing anything.`,
 		Example: example(`
   agora upgrade
+  agora upgrade --check --json
   agora update --json
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			method, command := detectUpgradeCommand(a.env)
-			return renderResult(cmd, "upgrade", map[string]any{
-				"action":        use,
-				"command":       command,
-				"installMethod": method,
-				"status":        "manual",
-			})
+			data, err := a.performSelfUpdate(check)
+			if err != nil {
+				return err
+			}
+			return renderResult(cmd, "upgrade", data)
 		},
 	}
+	cmd.Flags().BoolVar(&check, "check", false, "resolve the latest release and report what would happen without writing anything")
+	return cmd
 }
 
 func detectUpgradeCommand(env map[string]string) (string, string) {
@@ -318,66 +278,6 @@ func (a *App) buildOpenCommand() *cobra.Command {
 	return cmd
 }
 
-type commandHelpInfo struct {
-	Path    string         `json:"path"`
-	Command string         `json:"command"`
-	Short   string         `json:"short"`
-	Flags   []flagHelpInfo `json:"flags"`
-}
-
-type flagHelpInfo struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Default string `json:"default,omitempty"`
-	Usage   string `json:"usage"`
-}
-
-func buildCommandTree(root *cobra.Command) []commandHelpInfo {
-	var result []commandHelpInfo
-	var walk func(*cobra.Command)
-	walk = func(cmd *cobra.Command) {
-		for _, child := range cmd.Commands() {
-			if child.Name() == "help" || child.Name() == "completion" {
-				continue
-			}
-			result = append(result, commandHelpInfo{
-				Path:    child.CommandPath(),
-				Command: strings.TrimSpace(strings.TrimPrefix(child.CommandPath(), root.CommandPath())),
-				Short:   child.Short,
-				Flags:   localFlagInfos(child),
-			})
-			walk(child)
-		}
-	}
-	walk(root)
-	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
-	return result
-}
-
-func localFlagInfos(cmd *cobra.Command) []flagHelpInfo {
-	inherited := cmd.InheritedFlags()
-	flags := make([]flagHelpInfo, 0)
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Hidden || f.Name == "help" || inherited.Lookup(f.Name) != nil {
-			return
-		}
-		flags = append(flags, flagHelpInfo{
-			Name:    f.Name,
-			Type:    f.Value.Type(),
-			Default: nonTrivialDefault(f.DefValue),
-			Usage:   f.Usage,
-		})
-	})
-	return flags
-}
-
-func nonTrivialDefault(v string) string {
-	if v == "" || v == "false" || v == "0" {
-		return ""
-	}
-	return v
-}
-
 func (a *App) buildLoginCommand(use string) *cobra.Command {
 	var noBrowser bool
 	var region string
@@ -391,7 +291,7 @@ func (a *App) buildLoginCommand(use string) *cobra.Command {
   agora login --region cn
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			data, err := a.login(noBrowser, region)
+			data, err := a.login(noBrowser, region, jsonProgressFor(a, cmd, use))
 			if err != nil {
 				return err
 			}
@@ -425,10 +325,9 @@ func (a *App) buildLogoutCommand(use string) *cobra.Command {
 func (a *App) buildWhoAmICommand() *cobra.Command {
 	var plain bool
 	cmd := &cobra.Command{
-		Use:     "whoami",
-		Aliases: []string{"status"},
-		Short:   "Show the current auth status",
-		Long:    "Display whether the CLI is authenticated and which scope and session expiry are currently active.",
+		Use:   "whoami",
+		Short: "Show the current auth status",
+		Long:  "Display whether the CLI is authenticated and which scope and session expiry are currently active. For automation, prefer `agora auth status --json`.",
 		Example: example(`
   agora whoami
   agora whoami --plain
@@ -591,7 +490,7 @@ func (a *App) buildConfigCommand() *cobra.Command {
 				next.Verbose = verbose
 			}
 			if cmd.Flags().Changed("output") {
-				next.Output = outputMode(cfg.Output)
+				next.Output = cfg.Output
 			}
 			path, err := resolveConfigFilePath(a.env)
 			if err != nil {

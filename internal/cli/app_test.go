@@ -376,6 +376,89 @@ func TestConfigBannerFormattingAndPrintingRules(t *testing.T) {
 		shouldPrintConfigBanner(outputPretty, false, "created") != false {
 		t.Fatal("unexpected banner print rules")
 	}
+
+	cases := []struct {
+		name     string
+		mode     outputMode
+		isTTY    bool
+		status   string
+		env      map[string]string
+		expected bool
+	}{
+		{name: "tty pretty created no-ci", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{}, expected: true},
+		{name: "tty pretty created with CI=true", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"CI": "true"}, expected: false},
+		{name: "tty pretty created with GITHUB_ACTIONS", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"GITHUB_ACTIONS": "true"}, expected: false},
+		{name: "tty pretty created with GITLAB_CI", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"GITLAB_CI": "true"}, expected: false},
+		{name: "tty pretty created with BUILDKITE", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"BUILDKITE": "true"}, expected: false},
+		{name: "tty pretty created with CIRCLECI", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"CIRCLECI": "true"}, expected: false},
+		{name: "tty pretty created with CI=false", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"CI": "false"}, expected: true},
+		{name: "tty pretty created with CI=0", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"CI": "0"}, expected: true},
+		{name: "ci-detect-disabled escape hatch", mode: outputPretty, isTTY: true, status: "created", env: map[string]string{"CI": "true", "AGORA_DISABLE_CI_DETECT": "1"}, expected: true},
+	}
+	for _, tc := range cases {
+		got := shouldPrintConfigBannerWithEnv(tc.mode, tc.isTTY, tc.status, tc.env)
+		if got != tc.expected {
+			t.Errorf("%s: shouldPrintConfigBannerWithEnv = %v; want %v", tc.name, got, tc.expected)
+		}
+	}
+}
+
+func TestIsCIEnvironment(t *testing.T) {
+	cases := []struct {
+		name     string
+		env      map[string]string
+		expected bool
+	}{
+		{name: "nil env", env: nil, expected: false},
+		{name: "empty env", env: map[string]string{}, expected: false},
+		{name: "CI=true", env: map[string]string{"CI": "true"}, expected: true},
+		{name: "CI=1", env: map[string]string{"CI": "1"}, expected: true},
+		{name: "CI=false", env: map[string]string{"CI": "false"}, expected: false},
+		{name: "CI=0", env: map[string]string{"CI": "0"}, expected: false},
+		{name: "CI empty string", env: map[string]string{"CI": ""}, expected: false},
+		{name: "GITHUB_ACTIONS only", env: map[string]string{"GITHUB_ACTIONS": "true"}, expected: true},
+		{name: "GITLAB_CI only", env: map[string]string{"GITLAB_CI": "true"}, expected: true},
+		{name: "BUILDKITE only", env: map[string]string{"BUILDKITE": "true"}, expected: true},
+		{name: "CIRCLECI only", env: map[string]string{"CIRCLECI": "true"}, expected: true},
+		{name: "JENKINS_URL only", env: map[string]string{"JENKINS_URL": "https://jenkins.example.com"}, expected: true},
+		{name: "TF_BUILD only", env: map[string]string{"TF_BUILD": "True"}, expected: true},
+		{name: "AGORA_DISABLE_CI_DETECT overrides CI=true", env: map[string]string{"CI": "true", "AGORA_DISABLE_CI_DETECT": "1"}, expected: false},
+		{name: "AGORA_DISABLE_CI_DETECT overrides GITHUB_ACTIONS", env: map[string]string{"GITHUB_ACTIONS": "true", "AGORA_DISABLE_CI_DETECT": "1"}, expected: false},
+	}
+	for _, tc := range cases {
+		got := isCIEnvironment(tc.env)
+		if got != tc.expected {
+			t.Errorf("%s: isCIEnvironment = %v; want %v", tc.name, got, tc.expected)
+		}
+	}
+}
+
+func TestResolveOutputModeFromEnvCIPrecedence(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		osEnv     map[string]string
+		cfgOutput outputMode
+		expected  outputMode
+	}{
+		{name: "no env, default config: pretty", raw: "", osEnv: map[string]string{}, cfgOutput: outputPretty, expected: outputPretty},
+		{name: "explicit --output pretty wins over CI", raw: "pretty", osEnv: map[string]string{"CI": "true"}, cfgOutput: outputPretty, expected: outputPretty},
+		{name: "explicit --output json wins over no-CI", raw: "json", osEnv: map[string]string{}, cfgOutput: outputPretty, expected: outputJSON},
+		{name: "user-set AGORA_OUTPUT=pretty wins over CI", raw: "", osEnv: map[string]string{"CI": "true", "AGORA_OUTPUT": "pretty"}, cfgOutput: outputPretty, expected: outputPretty},
+		{name: "user-set AGORA_OUTPUT=json wins regardless", raw: "", osEnv: map[string]string{"AGORA_OUTPUT": "json"}, cfgOutput: outputPretty, expected: outputJSON},
+		{name: "config json without env stays json", raw: "", osEnv: map[string]string{}, cfgOutput: outputJSON, expected: outputJSON},
+		{name: "CI=true alone yields json", raw: "", osEnv: map[string]string{"CI": "true"}, cfgOutput: outputPretty, expected: outputJSON},
+		{name: "GITHUB_ACTIONS yields json", raw: "", osEnv: map[string]string{"GITHUB_ACTIONS": "true"}, cfgOutput: outputPretty, expected: outputJSON},
+		{name: "AGORA_DISABLE_CI_DETECT escape hatch", raw: "", osEnv: map[string]string{"CI": "true", "AGORA_DISABLE_CI_DETECT": "1"}, cfgOutput: outputPretty, expected: outputPretty},
+	}
+	for _, tc := range cases {
+		app := &App{osEnv: tc.osEnv, cfg: defaultConfig()}
+		app.cfg.Output = tc.cfgOutput
+		got := app.resolveOutputModeFromEnv(tc.raw)
+		if got != tc.expected {
+			t.Errorf("%s: resolveOutputModeFromEnv(%q) = %v; want %v", tc.name, tc.raw, got, tc.expected)
+		}
+	}
 }
 
 func TestResolveConfiguredOutputModeAndConfigApplication(t *testing.T) {

@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
+func (a *App) login(noBrowser bool, region string, progress progressEmitter) (map[string]any, error) {
 	config := a.oauthConfig()
 	pair, err := generatePKCE()
 	if err != nil {
@@ -60,10 +60,12 @@ func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
 			fmt.Fprintln(os.Stderr, "Browser did not open automatically. Copy the URL above or re-run with --no-browser.")
 		}
 	}
+	progress.emit("oauth:waiting", "Waiting for browser callback", map[string]any{"loginUrl": u.String(), "redirectUri": callback.RedirectURI, "timeoutMs": int(timeout / time.Millisecond)})
 	payload, err := callback.Wait()
 	if err != nil {
 		return nil, err
 	}
+	progress.emit("oauth:received", "Authorization code received; exchanging for token", nil)
 	token, err := a.exchangeAuthorizationCode(config.TokenURL, config.ClientID, payload.Code, pair.CodeVerifier, callback.RedirectURI)
 	if err != nil {
 		return nil, err
@@ -71,6 +73,7 @@ func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
 	if err := saveSession(a.env, token); err != nil {
 		return nil, err
 	}
+	progress.emit("oauth:complete", "Session stored", nil)
 	ctx, err := loadContext(a.env)
 	if err != nil {
 		return nil, err
@@ -184,7 +187,12 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 	wait := make(chan callbackPayload, 1)
 	errs := make(chan error, 1)
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler: mux,
+		// Set ReadHeaderTimeout to mitigate Slowloris attacks (gosec G112).
+		// Even though this listens only on 127.0.0.1, we still bound it.
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -356,7 +364,7 @@ func (a *App) shouldPromptForLogin() bool {
 	if currentOutputModeFromArgs(a.env) == outputJSON {
 		return false
 	}
-	if strings.TrimSpace(a.env["CI"]) != "" {
+	if isCIEnvironment(a.osEnv) {
 		return false
 	}
 	return isTTY(os.Stdin)
@@ -413,7 +421,9 @@ func (a *App) promptForLogin() error {
 	if !confirm {
 		return noLocalSessionError()
 	}
-	_, err = a.login(false, a.loginPromptRegion())
+	// Interactive auth prompt path is pretty-only by construction
+	// (shouldPromptForLogin gates JSON/CI), so no progress emitter is needed.
+	_, err = a.login(false, a.loginPromptRegion(), nil)
 	return err
 }
 

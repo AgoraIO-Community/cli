@@ -227,8 +227,21 @@ func buildWorkspaceDoctorDetails(target projectTarget) (doctorCheckCategory, map
 				SuggestedCommand: "agora quickstart env write . --project " + target.project.ProjectID,
 			})
 		} else {
-			items = append(items, doctorCheckItem{Name: "workspace_env_file", Message: "Failed to read quickstart env file: " + readErr.Error(), Status: "fail"})
-			blocking = append(blocking, doctorIssue{Code: "WORKSPACE_ENV_READ_FAILED", Message: readErr.Error()})
+			// The env file exists but cannot be read (permissions, encoding, IO).
+			// Re-running `quickstart env write` recreates the file with the
+			// correct ownership, mode, and encoding from a known-good source.
+			recoveryCmd := "agora quickstart env write . --project " + target.project.ProjectID + " --overwrite"
+			items = append(items, doctorCheckItem{
+				Name:             "workspace_env_file",
+				Message:          "Failed to read quickstart env file: " + readErr.Error(),
+				Status:           "fail",
+				SuggestedCommand: recoveryCmd,
+			})
+			blocking = append(blocking, doctorIssue{
+				Code:             "WORKSPACE_ENV_READ_FAILED",
+				Message:          readErr.Error(),
+				SuggestedCommand: recoveryCmd,
+			})
 		}
 		check := doctorCheckCategory{Category: "workspace", Items: items}
 		check.Status = summarizeCategoryStatus(items)
@@ -356,8 +369,22 @@ func buildProjectDoctorResult(project projectDetail, region string, features []f
 	}
 	configItems := []doctorCheckItem{{Name: "app_credentials", Message: "App credentials available", Status: "pass"}}
 	if project.AppID == "" {
-		configItems[0] = doctorCheckItem{Name: "app_credentials", Message: "App credentials missing", Status: "fail"}
-		blocking = append(blocking, doctorIssue{Code: "APP_CREDENTIALS_MISSING", Message: "App credentials missing"})
+		// The remote project exists but the BFF returned no App ID. The
+		// most useful next step is to re-fetch the project (which often
+		// resolves transient provisioning lag) or re-select the intended
+		// project explicitly.
+		recoveryCmd := "agora project show --project " + project.ProjectID
+		configItems[0] = doctorCheckItem{
+			Name:             "app_credentials",
+			Message:          "App credentials missing",
+			Status:           "fail",
+			SuggestedCommand: recoveryCmd,
+		}
+		blocking = append(blocking, doctorIssue{
+			Code:             "APP_CREDENTIALS_MISSING",
+			Message:          "App credentials missing",
+			SuggestedCommand: recoveryCmd,
+		})
 	}
 	if project.TokenEnabled {
 		configItems = append(configItems, doctorCheckItem{Name: "token_capability", Message: "Token capability enabled for the project", Status: "pass"})

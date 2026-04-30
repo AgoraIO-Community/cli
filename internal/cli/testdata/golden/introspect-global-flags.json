@@ -1,0 +1,37 @@
+[
+  {
+    "name": "json",
+    "type": "bool",
+    "usage": "shortcut for --output json"
+  },
+  {
+    "name": "no-color",
+    "type": "bool",
+    "usage": "disable ANSI color in pretty output"
+  },
+  {
+    "name": "output",
+    "type": "string",
+    "usage": "output mode for command results: pretty or json"
+  },
+  {
+    "name": "pretty",
+    "type": "bool",
+    "usage": "pretty-print JSON output when used with --json"
+  },
+  {
+    "name": "quiet",
+    "type": "bool",
+    "usage": "suppress success output (both pretty and JSON envelopes); rely on exit code. Errors still print on stderr."
+  },
+  {
+    "name": "upgrade-check",
+    "type": "bool",
+    "usage": "print non-interactive upgrade guidance and exit"
+  },
+  {
+    "name": "verbose",
+    "type": "bool",
+    "usage": "echo structured logs to stderr (equivalent to AGORA_VERBOSE=1); does not change exit codes or JSON envelopes"
+  }
+]

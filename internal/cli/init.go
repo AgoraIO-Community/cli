@@ -72,7 +72,16 @@ Use --feature to specify which features to enable on a newly created project (re
 			if strings.TrimSpace(targetDir) == "" {
 				targetDir = args[0]
 			}
-			result, err := a.initProject(args[0], targetDir, *template, existingProject, region, features, newProject)
+			// Interactive reuse confirmation: only when TTY+pretty+not-CI, no
+			// explicit --project, and not --new-project. Silent reuse stays the
+			// default for --json / CI / non-TTY agent runs.
+			promptForReuse := strings.TrimSpace(existingProject) == "" &&
+				!newProject &&
+				a.resolveOutputMode(cmd) != outputJSON &&
+				!isCIEnvironment(a.osEnv) &&
+				isTTY(os.Stdin)
+			progress := jsonProgressFor(a, cmd, "init")
+			result, err := a.initProject(args[0], targetDir, *template, existingProject, region, features, newProject, promptForReuse, cmd.ErrOrStderr(), os.Stdin, progress)
 			if err != nil {
 				return err
 			}
@@ -89,7 +98,7 @@ Use --feature to specify which features to enable on a newly created project (re
 }
 
 func (a *App) selectInitTemplate(cmd *cobra.Command) (string, error) {
-	if a.resolveOutputMode(cmd) == outputJSON || strings.TrimSpace(a.env["CI"]) != "" || !isTTY(os.Stdin) {
+	if a.resolveOutputMode(cmd) == outputJSON || isCIEnvironment(a.osEnv) || !isTTY(os.Stdin) {
 		return "", &cliError{Message: "quickstart template is required. Pass `--template` or run `agora quickstart list`.", Code: "QUICKSTART_TEMPLATE_REQUIRED"}
 	}
 	templates := []quickstartTemplate{}
@@ -191,26 +200,29 @@ func selectInitProjectFromList(items []projectSummary) (projectSummary, bool) {
 
 // findDefaultProject returns the user's preferred existing project: "Default Project" if it
 // exists, otherwise the most recently created project in the current results page. Returns
-// found=false when the account has no projects yet.
-func (a *App) findDefaultProject() (projectTarget, bool, error) {
+// found=false when the account has no projects yet. The total count returned is the number
+// of projects in the listing, so callers can decide whether silent reuse is risky enough to
+// warrant a confirmation prompt.
+func (a *App) findDefaultProject() (target projectTarget, found bool, total int, err error) {
 	ctx, err := loadContext(a.env)
 	if err != nil {
-		return projectTarget{}, false, err
+		return projectTarget{}, false, 0, err
 	}
 	list, err := a.listProjects("", 1, 100)
 	if err != nil {
-		return projectTarget{}, false, err
+		return projectTarget{}, false, 0, err
 	}
-	if len(list.Items) == 0 {
-		return projectTarget{}, false, nil
+	total = len(list.Items)
+	if total == 0 {
+		return projectTarget{}, false, 0, nil
 	}
 	item, ok := selectInitProjectFromList(list.Items)
 	if !ok {
-		return projectTarget{}, false, nil
+		return projectTarget{}, false, total, nil
 	}
 	project, err := a.getProject(item.ProjectID)
 	if err != nil {
-		return projectTarget{}, false, err
+		return projectTarget{}, false, total, err
 	}
 	region := ctx.CurrentRegion
 	if region == "" {
@@ -222,10 +234,41 @@ func (a *App) findDefaultProject() (projectTarget, bool, error) {
 	if project.Region != nil && *project.Region != "" {
 		region = *project.Region
 	}
-	return projectTarget{project: project, region: region}, true, nil
+	return projectTarget{project: project, region: region}, true, total, nil
 }
 
-func (a *App) initProject(name, targetDir string, template quickstartTemplate, existingProject, region string, features []string, newProject bool) (map[string]any, error) {
+// confirmProjectReuse prompts the user before silently binding a new repo to a
+// reused project. Returns one of "reuse", "new", or "abort". Empty input or 'y'
+// defaults to "reuse"; 'n' aborts; 'new' or 'c' creates a fresh project.
+func confirmProjectReuse(in io.Reader, out io.Writer, name, projectID string) (string, error) {
+	reader := bufio.NewReader(in)
+	prompt := fmt.Sprintf("Use existing project %q (%s)? [Y/n/new]: ", name, projectID)
+	for {
+		if _, err := fmt.Fprint(out, prompt); err != nil {
+			return "", err
+		}
+		answer, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "", "y", "yes":
+			return "reuse", nil
+		case "n", "no":
+			return "abort", nil
+		case "new", "c", "create":
+			return "new", nil
+		}
+		if _, err := fmt.Fprintln(out, "Please answer y (reuse), n (abort), or new (create a fresh project)."); err != nil {
+			return "", err
+		}
+		if errors.Is(err, io.EOF) {
+			return "abort", nil
+		}
+	}
+}
+
+func (a *App) initProject(name, targetDir string, template quickstartTemplate, existingProject, region string, features []string, newProject bool, promptForReuse bool, promptOut io.Writer, promptIn io.Reader, progress progressEmitter) (map[string]any, error) {
 	var target projectTarget
 	projectAction := "existing"
 	enabledFeatures := []string{}
@@ -241,12 +284,29 @@ func (a *App) initProject(name, targetDir string, template quickstartTemplate, e
 	case newProject:
 		needsCreate = true
 	default:
-		resolved, found, err := a.findDefaultProject()
+		resolved, found, total, err := a.findDefaultProject()
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			target = resolved
+			// Confirm reuse only if more than one project exists; if the
+			// account has exactly one project, silent reuse is unambiguous.
+			if promptForReuse && total > 1 {
+				choice, err := confirmProjectReuse(promptIn, promptOut, resolved.project.Name, resolved.project.ProjectID)
+				if err != nil {
+					return nil, err
+				}
+				switch choice {
+				case "abort":
+					return nil, &cliError{Message: "init aborted by user.", Code: "INIT_ABORTED"}
+				case "new":
+					needsCreate = true
+				default:
+					target = resolved
+				}
+			} else {
+				target = resolved
+			}
 		} else {
 			needsCreate = true
 		}
@@ -257,6 +317,7 @@ func (a *App) initProject(name, targetDir string, template quickstartTemplate, e
 		if len(featuresToEnable) == 0 {
 			featuresToEnable = defaultInitFeatures()
 		}
+		progress.emit("project:create", "Creating Agora project", map[string]any{"projectName": name, "features": featuresToEnable})
 		projectResult, err := a.projectCreate(name, region, "", featuresToEnable, "")
 		if err != nil {
 			return nil, err
@@ -270,9 +331,12 @@ func (a *App) initProject(name, targetDir string, template quickstartTemplate, e
 			return nil, err
 		}
 		target = resolved
+		progress.emit("project:created", "Agora project ready", map[string]any{"projectId": target.project.ProjectID, "projectName": target.project.Name})
+	} else {
+		progress.emit("project:reuse", "Reusing existing Agora project", map[string]any{"projectId": target.project.ProjectID, "projectName": target.project.Name})
 	}
 
-	quickstartResult, err := a.quickstartCreate(template, targetDir, target.project.ProjectID, "")
+	quickstartResult, err := a.quickstartCreate(template, targetDir, target.project.ProjectID, "", progress)
 	if err != nil {
 		return nil, err
 	}

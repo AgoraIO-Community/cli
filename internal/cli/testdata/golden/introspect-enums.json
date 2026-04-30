@@ -1,0 +1,17 @@
+{
+  "doctorStatus": [
+    "healthy",
+    "warning",
+    "not_ready",
+    "auth_error"
+  ],
+  "features": [
+    "rtc",
+    "rtm",
+    "convoai"
+  ],
+  "outputModes": [
+    "pretty",
+    "json"
+  ]
+}
