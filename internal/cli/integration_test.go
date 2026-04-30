@@ -51,6 +51,12 @@ type cliRunOptions struct {
 	onStderr func(string) bool
 }
 
+func init() {
+	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") == "1" {
+		runCLIHelperProcess()
+	}
+}
+
 // TestCLIHelperProcess is the in-process re-entry point used by runCLI.
 // When invoked with GO_WANT_CLI_HELPER_PROCESS=1, it builds a fresh *App
 // and runs Execute() with the args passed through GO_CLI_HELPER_ARGS_JSON;
@@ -59,11 +65,24 @@ func TestCLIHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") != "1" {
 		return
 	}
-	cliArgs := helperCLIArgs(t)
+	cliArgs := helperCLIArgs()
 	if len(cliArgs) == 0 {
 		fmt.Fprintln(os.Stderr, "TestCLIHelperProcess: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
 		os.Exit(64)
 	}
+	executeCLIHelper(cliArgs)
+}
+
+func runCLIHelperProcess() {
+	cliArgs := helperCLIArgs()
+	if len(cliArgs) == 0 {
+		fmt.Fprintln(os.Stderr, "TestCLIHelperProcess: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
+		os.Exit(64)
+	}
+	executeCLIHelper(cliArgs)
+}
+
+func executeCLIHelper(cliArgs []string) {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 	os.Args = append([]string{"agora"}, cliArgs...)
@@ -91,12 +110,12 @@ func TestCLIHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func helperCLIArgs(t *testing.T) []string {
-	t.Helper()
+func helperCLIArgs() []string {
 	if raw := os.Getenv("GO_CLI_HELPER_ARGS_JSON"); raw != "" {
 		var args []string
 		if err := json.Unmarshal([]byte(raw), &args); err != nil {
-			t.Fatalf("invalid GO_CLI_HELPER_ARGS_JSON: %v", err)
+			fmt.Fprintf(os.Stderr, "TestCLIHelperProcess: invalid GO_CLI_HELPER_ARGS_JSON: %v\n", err)
+			os.Exit(64)
 		}
 		return args
 	}
@@ -116,7 +135,7 @@ func helperCLIArgs(t *testing.T) []string {
 // URL the moment we see it).
 func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=TestCLIHelperProcess")
+	cmd := exec.Command(os.Args[0])
 	if options.workdir != "" {
 		cmd.Dir = options.workdir
 	}
