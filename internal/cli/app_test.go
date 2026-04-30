@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -558,6 +559,36 @@ func TestWaitForOAuthCallbackMismatchAndTimeout(t *testing.T) {
 	defer timeoutServer.Close()
 	if _, err := timeoutServer.Wait(); err == nil || !strings.HasPrefix(err.Error(), "Timed out waiting for the OAuth callback.") {
 		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestWaitForOAuthCallbackAcceptsIPv4WhenRedirectUsesLocalhost(t *testing.T) {
+	server, err := waitForOAuthCallback("expected-state", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	if !strings.HasPrefix(server.RedirectURI, "http://localhost:") {
+		t.Fatalf("expected localhost redirect URI for OAuth compatibility, got %s", server.RedirectURI)
+	}
+	if len(server.listeners) == 0 {
+		t.Fatal("expected at least one loopback listener")
+	}
+	parsed, err := url.Parse(server.RedirectURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get("http://127.0.0.1:" + parsed.Port() + "/oauth/callback?code=test-code&state=expected-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	payload, err := server.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != "test-code" || payload.State != "expected-state" {
+		t.Fatalf("unexpected callback payload: %+v", payload)
 	}
 }
 

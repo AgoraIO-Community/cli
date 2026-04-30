@@ -180,7 +180,7 @@ type callbackServer struct {
 	wait        chan callbackPayload
 	errs        chan error
 	server      *http.Server
-	listener    net.Listener
+	listeners   []net.Listener
 }
 
 type callbackPayload struct {
@@ -195,19 +195,24 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 	srv := &http.Server{
 		Handler: mux,
 		// Set ReadHeaderTimeout to mitigate Slowloris attacks (gosec G112).
-		// Even though this listens only on 127.0.0.1, we still bound it.
+		// Even though this listens only on loopback interfaces, we still bound it.
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln4, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
+	port := ln4.Addr().(*net.TCPAddr).Port
+	listeners := []net.Listener{ln4}
+	if ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port)); err == nil {
+		listeners = append(listeners, ln6)
+	}
 	cs := &callbackServer{
-		RedirectURI: fmt.Sprintf("http://localhost:%d/oauth/callback", ln.Addr().(*net.TCPAddr).Port),
+		RedirectURI: fmt.Sprintf("http://localhost:%d/oauth/callback", port),
 		wait:        wait,
 		errs:        errs,
 		server:      srv,
-		listener:    ln,
+		listeners:   listeners,
 	}
 	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
@@ -228,9 +233,11 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 			wait <- callbackPayload{Code: code, State: state}
 		}
 	})
-	go func() {
-		_ = srv.Serve(ln)
-	}()
+	for _, listener := range listeners {
+		go func(ln net.Listener) {
+			_ = srv.Serve(ln)
+		}(listener)
+	}
 	go func() {
 		<-time.After(timeout)
 		errs <- errors.New("Timed out waiting for the OAuth callback. Re-run with --no-browser to copy the URL manually, or check that your browser completed the login flow.")
@@ -248,7 +255,16 @@ func (c *callbackServer) Wait() (callbackPayload, error) {
 }
 
 func (c *callbackServer) Close() error {
-	return c.server.Close()
+	var firstErr error
+	if err := c.server.Close(); err != nil {
+		firstErr = err
+	}
+	for _, listener := range c.listeners {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 type tokenResponse struct {
