@@ -13,6 +13,8 @@ This project follows semantic versioning for released CLI versions. The top sect
 - Add `agora introspect`, `agora telemetry`, `agora upgrade` (alias `update`), and `agora open` for agent and human workflows.
 - Add global `--pretty`, `--quiet`, and `--no-color` flags, plus `agora whoami --plain` for shell-friendly auth checks.
 - Add `AGORA_AGENT` propagation into the API `User-Agent`, `project create --dry-run` / `--idempotency-key`, and `quickstart create --ref`.
+- Add `quickstart list --verbose` for richer template details in pretty output.
+- Honor `DO_NOT_TRACK=1` to disable telemetry without editing config.
 - Add this changelog so users can review notable CLI changes from version to version.
 
 ### Changed
@@ -20,6 +22,8 @@ This project follows semantic versioning for released CLI versions. The top sect
 - Standardize unauthenticated failures across API-touching commands to return exit code `3` with `error.code == "AUTH_UNAUTHENTICATED"` in JSON mode.
 - Return `project doctor --json` readiness failures as `ok: false` with matching `meta.exitCode`, while preserving the diagnostic `data` payload.
 - Improve project resolution to try project-ID lookups directly and paginate name searches, surfacing ambiguous matches instead of silently picking one.
+- Return stable `error.code` values for project and quickstart failures (`PROJECT_NOT_SELECTED`, `PROJECT_NOT_FOUND`, `PROJECT_NO_CERTIFICATE`, `PROJECT_AMBIGUOUS`, `QUICKSTART_TEMPLATE_UNKNOWN`, `QUICKSTART_TARGET_EXISTS`, etc.) so scripts and agents can branch on them.
+- Replace the OAuth callback page with a branded success view after sign-in.
 - Prompt for an `init` template in interactive pretty-mode runs when `--template` is omitted, while keeping JSON, CI, and non-TTY runs strict.
 - Print quickstart next steps from `quickstart create` and include `reusedExistingProject` in `init` results.
 - Limit env file writes to runtime credential keys only, keeping project metadata in `.agora/project.json` and preserving existing `.env` / `.env.local` content.
