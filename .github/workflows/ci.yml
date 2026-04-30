@@ -36,6 +36,16 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Check Go formatting
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+
       - name: Build CLI
         shell: bash
         run: |
