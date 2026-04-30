@@ -127,11 +127,67 @@ func shouldPrintConfigBanner(mode outputMode, isTTY bool, status string) bool {
 	return isTTY && mode == outputPretty && status != "loaded"
 }
 
+// shouldPrintConfigBannerWithEnv extends shouldPrintConfigBanner by also
+// suppressing the first-run banner whenever the CLI is running inside a
+// detected CI environment, even if the user explicitly chose --output pretty.
+// This keeps machine-readable build logs clean and prevents an ASCII banner
+// from being interpreted as an error or unexpected output by CI parsers.
+func shouldPrintConfigBannerWithEnv(mode outputMode, isTTY bool, status string, env map[string]string) bool {
+	if isCIEnvironment(env) {
+		return false
+	}
+	return shouldPrintConfigBanner(mode, isTTY, status)
+}
+
+// isCIEnvironment returns true when one of the well-known CI environment
+// variables is set to a truthy value. The check is intentionally permissive:
+// any non-empty CI=... value counts (matches the de-facto convention shared
+// by GitHub Actions, GitLab, CircleCI, Travis, AppVeyor, etc.), and the
+// vendor-specific variables are matched on presence regardless of value.
+//
+// Detected vendors:
+//   - CI                (universal)
+//   - GITHUB_ACTIONS    (GitHub Actions)
+//   - GITLAB_CI         (GitLab CI)
+//   - BUILDKITE         (Buildkite)
+//   - CIRCLECI          (CircleCI)
+//   - JENKINS_URL       (Jenkins)
+//   - TF_BUILD          (Azure Pipelines)
+//
+// Users can opt out by setting AGORA_DISABLE_CI_DETECT=1, which is useful
+// for local debugging of CI scripts where the user wants pretty output.
+func isCIEnvironment(env map[string]string) bool {
+	if env == nil {
+		return false
+	}
+	if strings.TrimSpace(env["AGORA_DISABLE_CI_DETECT"]) == "1" {
+		return false
+	}
+	if v := strings.TrimSpace(env["CI"]); v != "" && strings.ToLower(v) != "false" && v != "0" {
+		return true
+	}
+	for _, key := range []string{"GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL", "TF_BUILD"} {
+		if strings.TrimSpace(env[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveConfiguredOutputMode(raw string, env map[string]string) outputMode {
 	if raw == "json" {
 		return outputJSON
 	}
+	if raw == "pretty" {
+		return outputPretty
+	}
 	if env["AGORA_OUTPUT"] == "json" {
+		return outputJSON
+	}
+	if env["AGORA_OUTPUT"] == "pretty" {
+		return outputPretty
+	}
+	if isCIEnvironment(env) {
 		return outputJSON
 	}
 	return outputPretty
@@ -181,6 +237,9 @@ var sensitiveFieldPattern = regexp.MustCompile(`(?i)token|secret|password|api[_-
 var logMu sync.Mutex
 
 func appendAppLog(level, event string, env map[string]string, fields map[string]any) error {
+	if strings.TrimSpace(env["DO_NOT_TRACK"]) != "" {
+		return nil
+	}
 	if env["AGORA_LOG_ENABLED"] == "0" {
 		return nil
 	}

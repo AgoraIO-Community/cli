@@ -2,7 +2,7 @@
 # Agora CLI installer for macOS, Linux, and Windows POSIX shells.
 #
 # Quick start:
-#   curl -fsSL https://raw.githubusercontent.com/AgoraIO-Community/cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh
 #
 # Pin a version:
 #   curl -fsSL .../install.sh | sh -s -- --version 0.1.4
@@ -25,7 +25,7 @@ fi
 INSTALLER_VERSION="2026.04.27"
 
 # ---- Defaults --------------------------------------------------------------
-GITHUB_REPO="${GITHUB_REPO:-AgoraIO-Community/cli}"
+GITHUB_REPO="${GITHUB_REPO:-AgoraIO/cli}"
 INSTALL_DIR_EXPLICIT=0
 if [ -n "${INSTALL_DIR+x}" ] && [ -n "${INSTALL_DIR-}" ]; then
   INSTALL_DIR_EXPLICIT=1

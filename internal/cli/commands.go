@@ -2,14 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 func (a *App) buildRoot() *cobra.Command {
@@ -26,7 +23,7 @@ func (a *App) buildRoot() *cobra.Command {
 Use "agora init" for the fastest path to a runnable demo.
 Use "agora --help --all" to inspect the full command tree with descriptions and flags.
 Use "agora --help --all --json" for a machine-readable command tree (agent tooling).`,
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora login
   agora whoami
   agora logout
@@ -37,19 +34,46 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
   agora --help --all
   agora --help --all --json
 `),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if a.rootUpgradeCheck {
+				method, command := detectUpgradeCommand(a.env)
+				return renderResult(cmd, "upgrade check", map[string]any{
+					"action":        "upgrade-check",
+					"command":       command,
+					"installMethod": method,
+					"status":        "manual",
+					"version":       versionInfo(),
+				})
+			}
+			return cmd.Help()
+		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			mode := a.resolveOutputMode(cmd)
+			// --verbose mirrors AGORA_VERBOSE=1: echoes structured logs to
+			// stderr in addition to writing them to the log file. Setting
+			// it on a.env is enough because appendAppLog reads from there.
+			if a.rootVerbose {
+				a.env["AGORA_VERBOSE"] = "1"
+			}
 			ctx := context.WithValue(cmd.Context(), contextKeyOutputMode{}, mode)
+			ctx = context.WithValue(ctx, contextKeyJSONPretty{}, a.rootPrettyJSON)
+			ctx = context.WithValue(ctx, contextKeyQuiet{}, a.rootQuiet)
+			ctx = context.WithValue(ctx, contextKeyNoColor{}, a.rootNoColor || strings.TrimSpace(a.env["NO_COLOR"]) != "")
 			cmd.SetContext(ctx)
 			return nil
 		},
 	}
-	root.Version = version
+	root.Version = formattedVersion()
 	root.PersistentFlags().StringVar(&a.rootOutput, "output", "", "output mode for command results: pretty or json")
 	root.PersistentFlags().BoolVar(&a.rootJSON, "json", false, "shortcut for --output json")
+	root.PersistentFlags().BoolVar(&a.rootPrettyJSON, "pretty", false, "pretty-print JSON output when used with --json")
+	root.PersistentFlags().BoolVar(&a.rootQuiet, "quiet", false, "suppress success output (both pretty and JSON envelopes); rely on exit code. Errors still print on stderr.")
+	root.PersistentFlags().BoolVar(&a.rootNoColor, "no-color", false, "disable ANSI color in pretty output")
+	root.PersistentFlags().BoolVar(&a.rootVerbose, "verbose", false, "echo structured logs to stderr (equivalent to AGORA_VERBOSE=1); does not change exit codes or JSON envelopes")
 	root.PersistentFlags().Bool("all", false, "show the full command tree in help output")
+	root.PersistentFlags().BoolVar(&a.rootUpgradeCheck, "upgrade-check", false, "print non-interactive upgrade guidance and exit")
 	root.AddCommand(a.buildLoginCommand("login"))
 	root.AddCommand(a.buildLogoutCommand("logout"))
 	root.AddCommand(a.buildWhoAmICommand())
@@ -58,29 +82,19 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	root.AddCommand(a.buildProjectCommand())
 	root.AddCommand(a.buildQuickstartCommand())
 	root.AddCommand(a.buildInitCommand())
+	root.AddCommand(a.buildVersionCommand())
+	root.AddCommand(a.buildIntrospectCommand())
+	root.AddCommand(a.buildTelemetryCommand())
+	root.AddCommand(a.buildUpgradeCommand())
+	root.AddCommand(a.buildOpenCommand())
 	// Keep "add" unregistered until it has a real implementation. Calls to
 	// `agora add` should behave as unknown command for now.
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if showAllHelp(cmd) && a.resolveOutputMode(cmd) == outputJSON {
-			globalFlags := make([]flagHelpInfo, 0)
-			cmd.Root().PersistentFlags().VisitAll(func(f *pflag.Flag) {
-				if f.Hidden || f.Name == "help" || f.Name == "all" {
-					return
-				}
-				globalFlags = append(globalFlags, flagHelpInfo{
-					Name:    f.Name,
-					Type:    f.Value.Type(),
-					Default: nonTrivialDefault(f.DefValue),
-					Usage:   f.Usage,
-				})
-			})
-			enc := json.NewEncoder(cmd.OutOrStdout())
-			enc.SetIndent("", "  ")
-			_ = enc.Encode(map[string]any{
-				"global_flags": globalFlags,
-				"commands":     buildCommandTree(cmd.Root()),
-			})
+			// Unified discovery: --help --all --json emits the same envelope as
+			// `agora introspect --json` so agents only handle one schema.
+			_ = emitEnvelope(cmd.OutOrStdout(), "introspect", buildIntrospectionData(cmd.Root()), jsonPrettyFromContext(cmd))
 			return
 		}
 		defaultHelp(cmd, args)
@@ -106,78 +120,162 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	return root
 }
 
-func showAllHelp(cmd *cobra.Command) bool {
-	if flag := cmd.Flags().Lookup("all"); flag != nil {
-		value, err := cmd.Flags().GetBool("all")
-		if err == nil {
-			return value
-		}
+// example trims leading/trailing newlines off a multi-line raw-string
+// example so it slots cleanly into Cobra's Example field.
+func example(value string) string {
+	return strings.Trim(value, "\n")
+}
+
+func (a *App) buildVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show Agora CLI build information",
+		Example: example(`
+  agora version
+  agora version --json
+`),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return renderResult(cmd, "version", versionInfo())
+		},
 	}
-	if flag := cmd.InheritedFlags().Lookup("all"); flag != nil {
-		value, err := cmd.InheritedFlags().GetBool("all")
-		if err == nil {
-			return value
-		}
+}
+
+func (a *App) buildTelemetryCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "telemetry",
+		Short: "Inspect or update telemetry preferences",
+		Long:  "Telemetry is limited to operational diagnostics and never includes tokens or app certificates. DO_NOT_TRACK=1 disables telemetry at runtime.",
+		Example: example(`
+  agora telemetry status
+  agora telemetry disable
+  agora telemetry enable --json
+`),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return a.renderTelemetry(cmd)
+		},
 	}
-	return false
-}
-
-type commandHelpInfo struct {
-	Path  string         `json:"path"`
-	Short string         `json:"short"`
-	Flags []flagHelpInfo `json:"flags"`
-}
-
-type flagHelpInfo struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Default string `json:"default,omitempty"`
-	Usage   string `json:"usage"`
-}
-
-func buildCommandTree(root *cobra.Command) []commandHelpInfo {
-	var result []commandHelpInfo
-	var walk func(*cobra.Command)
-	walk = func(cmd *cobra.Command) {
-		for _, child := range cmd.Commands() {
-			if child.Name() == "help" || child.Name() == "completion" {
-				continue
-			}
-			result = append(result, commandHelpInfo{
-				Path:  child.CommandPath(),
-				Short: child.Short,
-				Flags: localFlagInfos(child),
-			})
-			walk(child)
-		}
-	}
-	walk(root)
-	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
-	return result
-}
-
-func localFlagInfos(cmd *cobra.Command) []flagHelpInfo {
-	inherited := cmd.InheritedFlags()
-	flags := make([]flagHelpInfo, 0)
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Hidden || f.Name == "help" || inherited.Lookup(f.Name) != nil {
-			return
-		}
-		flags = append(flags, flagHelpInfo{
-			Name:    f.Name,
-			Type:    f.Value.Type(),
-			Default: nonTrivialDefault(f.DefValue),
-			Usage:   f.Usage,
-		})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "status",
+		Short: "Show telemetry status",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return a.renderTelemetry(cmd)
+		},
 	})
-	return flags
+	cmd.AddCommand(&cobra.Command{
+		Use:   "enable",
+		Short: "Enable telemetry",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return a.setTelemetry(cmd, true)
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "disable",
+		Short: "Disable telemetry",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return a.setTelemetry(cmd, false)
+		},
+	})
+	return cmd
 }
 
-func nonTrivialDefault(v string) string {
-	if v == "" || v == "false" || v == "0" {
-		return ""
+func (a *App) renderTelemetry(cmd *cobra.Command) error {
+	path, err := resolveConfigFilePath(a.env)
+	if err != nil {
+		return err
 	}
-	return v
+	return renderResult(cmd, "telemetry", map[string]any{
+		"action":     "status",
+		"configPath": path,
+		"doNotTrack": strings.TrimSpace(a.env["DO_NOT_TRACK"]) != "",
+		"enabled":    a.cfg.TelemetryEnabled && strings.TrimSpace(a.env["DO_NOT_TRACK"]) == "",
+	})
+}
+
+func (a *App) setTelemetry(cmd *cobra.Command, enabled bool) error {
+	next := a.cfg
+	next.TelemetryEnabled = enabled
+	path, err := resolveConfigFilePath(a.env)
+	if err != nil {
+		return err
+	}
+	if err := writeSecureJSON(path, next); err != nil {
+		return err
+	}
+	a.cfg = next
+	a.applyConfigToEnv()
+	return renderResult(cmd, "telemetry", map[string]any{
+		"action":     map[bool]string{true: "enable", false: "disable"}[enabled],
+		"configPath": path,
+		"enabled":    enabled && strings.TrimSpace(a.env["DO_NOT_TRACK"]) == "",
+		"doNotTrack": strings.TrimSpace(a.env["DO_NOT_TRACK"]) != "",
+	})
+}
+
+func (a *App) buildUpgradeCommand() *cobra.Command {
+	var check bool
+	cmd := &cobra.Command{
+		Use:     "upgrade",
+		Aliases: []string{"update"},
+		Short:   "Upgrade Agora CLI in place when installer-managed; otherwise print upgrade guidance",
+		Long: `Upgrade Agora CLI to the latest release.
+
+When the binary was installed with install.sh / install.ps1, this command performs an in-place self-update: download the new archive, verify its SHA-256 against the published checksums.txt, and atomically replace the running binary. The same primitives the installer uses.
+
+For Homebrew, npm, and other package-manager-managed installs, the command prints the recommended upgrade command and exits successfully (status: "manual"). It will not shadow a managed install.
+
+Use --check to resolve the latest version and report what would happen without writing anything.`,
+		Example: example(`
+  agora upgrade
+  agora upgrade --check --json
+  agora update --json
+`),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			data, err := a.performSelfUpdate(check)
+			if err != nil {
+				return err
+			}
+			return renderResult(cmd, "upgrade", data)
+		},
+	}
+	cmd.Flags().BoolVar(&check, "check", false, "resolve the latest release and report what would happen without writing anything")
+	return cmd
+}
+
+func detectUpgradeCommand(env map[string]string) (string, string) {
+	if strings.TrimSpace(env["npm_config_prefix"]) != "" {
+		return "npm", "npm install -g agoraio-cli@latest"
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(env["HOMEBREW_PREFIX"])), "brew") {
+		return "homebrew", "brew upgrade agoraio/tap/agora-cli"
+	}
+	return "installer", "curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --add-to-path"
+}
+
+func (a *App) buildOpenCommand() *cobra.Command {
+	var target string
+	var noBrowser bool
+	cmd := &cobra.Command{
+		Use:   "open",
+		Short: "Open Agora Console or CLI docs",
+		Example: example(`
+  agora open --target console
+  agora open --target docs
+`),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			url := "https://console.agora.io"
+			if target == "docs" {
+				url = "https://docs.agora.io"
+			}
+			status := "printed"
+			if !noBrowser && a.resolveOutputMode(cmd) != outputJSON && openBrowser(url) {
+				status = "opened"
+			}
+			return renderResult(cmd, "open", map[string]any{"action": "open", "status": status, "target": target, "url": url})
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", "console", "target to open: console or docs")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "print the URL without opening a browser")
+	return cmd
 }
 
 func (a *App) buildLoginCommand(use string) *cobra.Command {
@@ -187,13 +285,13 @@ func (a *App) buildLoginCommand(use string) *cobra.Command {
 		Use:   use,
 		Short: "Authenticate with Agora Console",
 		Long:  "Open an OAuth login flow in the browser and store the local Agora session for future CLI commands.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora login
   agora login --no-browser
   agora login --region cn
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			data, err := a.login(noBrowser, region)
+			data, err := a.login(noBrowser, region, jsonProgressFor(a, cmd, use))
 			if err != nil {
 				return err
 			}
@@ -210,7 +308,7 @@ func (a *App) buildLogoutCommand(use string) *cobra.Command {
 		Use:   use,
 		Short: "Clear the local Agora session",
 		Long:  "Remove the persisted local session without touching remote Agora resources.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora logout
   agora auth logout
 `),
@@ -225,13 +323,14 @@ func (a *App) buildLogoutCommand(use string) *cobra.Command {
 }
 
 func (a *App) buildWhoAmICommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "whoami",
-		Aliases: []string{"status"},
-		Short:   "Show the current auth status",
-		Long:    "Display whether the CLI is authenticated and which scope and session expiry are currently active.",
-		Example: strings.TrimSpace(`
+	var plain bool
+	cmd := &cobra.Command{
+		Use:   "whoami",
+		Short: "Show the current auth status",
+		Long:  "Display whether the CLI is authenticated and which scope and session expiry are currently active. For automation, prefer `agora auth status --json`.",
+		Example: example(`
   agora whoami
+  agora whoami --plain
   agora whoami --json
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -239,15 +338,18 @@ func (a *App) buildWhoAmICommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if auth, ok := data["authenticated"].(bool); ok && !auth {
-				cmd.SetContext(context.WithValue(cmd.Context(), exitCodeKey{}, 3))
+			if plain {
+				fmt.Fprintln(cmd.OutOrStdout(), asString(data["status"]))
+				if auth, _ := data["authenticated"].(bool); !auth {
+					return &exitError{code: 3}
+				}
+				return nil
 			}
-			if err := renderResult(cmd, "auth status", data); err != nil {
-				return err
-			}
-			return exitIfNeeded(cmd)
+			return a.renderAuthStatusResult(cmd, data)
 		},
 	}
+	cmd.Flags().BoolVar(&plain, "plain", false, "print only authenticated or unauthenticated for shell scripts")
+	return cmd
 }
 
 func (a *App) buildAuthCommand() *cobra.Command {
@@ -255,7 +357,7 @@ func (a *App) buildAuthCommand() *cobra.Command {
 		Use:   "auth",
 		Short: "Manage Agora authentication",
 		Long:  "Authentication helpers for logging in, logging out, and inspecting the current local session.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora auth login
   agora auth status
   agora auth logout
@@ -274,7 +376,7 @@ func (a *App) buildAuthCommand() *cobra.Command {
 		Aliases: []string{"whoami"},
 		Short:   "Show the current auth status",
 		Long:    "Display whether the CLI is authenticated and which scope and session expiry are currently active.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora auth status
   agora auth status --json
 `),
@@ -283,16 +385,31 @@ func (a *App) buildAuthCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if auth, ok := data["authenticated"].(bool); ok && !auth {
-				cmd.SetContext(context.WithValue(cmd.Context(), exitCodeKey{}, 3))
-			}
-			if err := renderResult(cmd, "auth status", data); err != nil {
-				return err
-			}
-			return exitIfNeeded(cmd)
+			return a.renderAuthStatusResult(cmd, data)
 		},
 	})
 	return cmd
+}
+
+func (a *App) renderAuthStatusResult(cmd *cobra.Command, data map[string]any) error {
+	if auth, ok := data["authenticated"].(bool); ok && !auth {
+		if mode, _ := cmd.Context().Value(contextKeyOutputMode{}).(outputMode); mode == outputJSON {
+			logPath := resolveLogFilePathForDisplay(a.env)
+			err := &cliError{
+				Message: noLocalSessionErrorMessage,
+				Code:    "AUTH_UNAUTHENTICATED",
+			}
+			if emitErr := emitErrorEnvelope(cmd.OutOrStdout(), "auth status", err, 3, logPath); emitErr != nil {
+				return emitErr
+			}
+			return &exitError{code: 3}
+		}
+		cmd.SetContext(context.WithValue(cmd.Context(), exitCodeKey{}, 3))
+	}
+	if err := renderResult(cmd, "auth status", data); err != nil {
+		return err
+	}
+	return exitIfNeeded(cmd)
 }
 
 func (a *App) buildConfigCommand() *cobra.Command {
@@ -300,7 +417,7 @@ func (a *App) buildConfigCommand() *cobra.Command {
 		Use:   "config",
 		Short: "Manage persisted Agora CLI defaults",
 		Long:  "Read and update local CLI defaults such as API endpoints, output mode, log level, and browser behavior.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora config path
   agora config get
   agora config update --output json --log-level debug
@@ -341,7 +458,7 @@ func (a *App) buildConfigCommand() *cobra.Command {
 		Use:   "update",
 		Short: "Update persisted CLI defaults",
 		Long:  "Write new default values to the local Agora CLI config file. Environment variables still take precedence at runtime.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora config update --output json
   agora config update --browser-auto-open=false
   agora config update --api-base-url https://agora-cli.agora.io
@@ -373,7 +490,7 @@ func (a *App) buildConfigCommand() *cobra.Command {
 				next.Verbose = verbose
 			}
 			if cmd.Flags().Changed("output") {
-				next.Output = outputMode(cfg.Output)
+				next.Output = cfg.Output
 			}
 			path, err := resolveConfigFilePath(a.env)
 			if err != nil {
@@ -408,7 +525,7 @@ func (a *App) buildProjectCommand() *cobra.Command {
 
 Use this group to create projects, switch the current project context, inspect feature state, and export project env values.
 These commands do not clone local application code. Use "agora quickstart" for standalone starter repos or "agora init" for the recommended end-to-end onboarding flow.`,
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project create my-agent-demo --feature rtc --feature convoai
   agora project list
   agora project use my-agent-demo
@@ -436,11 +553,13 @@ These commands do not clone local application code. Use "agora quickstart" for s
 func (a *App) buildProjectCreate() *cobra.Command {
 	var region, template string
 	var features []string
+	var dryRun bool
+	var idempotencyKey string
 	cmd := &cobra.Command{
 		Use:   "create [name]",
 		Short: "Create a new remote Agora project",
 		Long:  "Create a new Agora project resource in the selected control-plane region and optionally enable features after creation.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project create my-app
   agora project create my-agent-demo --region global --feature rtc --feature convoai
   agora project create my-voice-agent --template voice-agent
@@ -449,7 +568,19 @@ func (a *App) buildProjectCreate() *cobra.Command {
 			if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 				return errors.New("project name is required")
 			}
-			data, err := a.projectCreate(args[0], region, template, features)
+			if dryRun {
+				return renderResult(cmd, "project create", map[string]any{
+					"action":          "create",
+					"dryRun":          true,
+					"enabledFeatures": features,
+					"idempotencyKey":  idempotencyKey,
+					"projectName":     args[0],
+					"region":          region,
+					"status":          "planned",
+					"template":        template,
+				})
+			}
+			data, err := a.projectCreate(args[0], region, template, features, idempotencyKey)
 			if err != nil {
 				return err
 			}
@@ -459,6 +590,8 @@ func (a *App) buildProjectCreate() *cobra.Command {
 	cmd.Flags().StringVar(&region, "region", "", "control plane region for the project context (global or cn)")
 	cmd.Flags().StringVar(&template, "template", "", "apply a higher-level project preset such as voice-agent")
 	cmd.Flags().StringArrayVar(&features, "feature", nil, "enable one or more features after creation")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "return the planned project create result without creating remote resources")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "caller-provided key for safe retries when supported by the API")
 	return cmd
 }
 
@@ -469,7 +602,7 @@ func (a *App) buildProjectList() *cobra.Command {
 		Use:   "list",
 		Short: "List projects available to the current account",
 		Long:  "List remote Agora projects visible to the authenticated account, with optional filtering and pagination.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project list
   agora project list --keyword demo
   agora project list --page 2 --page-size 50
@@ -493,7 +626,7 @@ func (a *App) buildProjectUse() *cobra.Command {
 		Use:   "use <project>",
 		Short: "Set the current project context",
 		Long:  "Select the default project used by commands such as project show, project env, project feature, and quickstart env seeding.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project use my-agent-demo
   agora project use prj_123456
 `),
@@ -515,7 +648,7 @@ func (a *App) buildProjectShow() *cobra.Command {
 		Use:   "show [project]",
 		Short: "Show one project",
 		Long:  "Display details for the current project or for a project provided explicitly by name or ID.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project show
   agora project show my-agent-demo
   agora project show prj_123456 --json
@@ -541,7 +674,7 @@ func (a *App) buildProjectEnv() *cobra.Command {
 		Long: `Render environment variables for a project in dotenv, shell, or JSON form.
 
 Use "project env write" when you want to persist the values into a managed dotenv file.`,
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project env
   agora project env --shell
   agora project env --with-secrets --json
@@ -584,10 +717,10 @@ Use "project env write" when you want to persist the values into a managed doten
 	write := &cobra.Command{
 		Use:   "write [path]",
 		Short: "Write project environment variables to a dotenv file",
-		Long: `Write a managed Agora CLI env block to a dotenv file.
+		Long: `Write Agora App ID and App Certificate values to a dotenv file.
 
 If no path is provided, the CLI chooses the default target using the existing env files in the working directory.`,
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project env write
   agora project env write .env.local
   agora project env write apps/web/.env.local --overwrite
@@ -607,11 +740,11 @@ If no path is provided, the CLI chooses the default target using the existing en
 			}
 			appendFlag, _ := cmd.Flags().GetBool("append")
 			overwriteFlag, _ := cmd.Flags().GetBool("overwrite")
-			values, err := a.projectEnvValues(a.projectEnvProject, a.projectEnvSecrets)
+			target, err := a.resolveProjectTarget(a.projectEnvProject)
 			if err != nil {
 				return err
 			}
-			target, err := a.resolveProjectTarget(a.projectEnvProject)
+			values, err := projectCredentialEnvValues(target.project)
 			if err != nil {
 				return err
 			}
@@ -622,8 +755,8 @@ If no path is provided, the CLI chooses the default target using the existing en
 			return renderResult(cmd, "project env write", map[string]any{"action": "env-write", "keysWritten": projectEnvKeys(values), "path": file.Path, "projectId": target.project.ProjectID, "projectName": target.project.Name, "status": file.Status})
 		},
 	}
-	write.Flags().Bool("overwrite", false, "replace the target file with a fresh managed Agora block")
-	write.Flags().Bool("append", false, "append a managed Agora block to the target file when no managed block exists")
+	write.Flags().Bool("overwrite", false, "replace the target file with only Agora App ID and App Certificate values")
+	write.Flags().Bool("append", false, "append Agora App ID and App Certificate values when no existing values are present")
 	cmd.AddCommand(write)
 	return cmd
 }
@@ -633,7 +766,7 @@ func (a *App) buildProjectFeature() *cobra.Command {
 		Use:   "feature",
 		Short: "Manage project feature state",
 		Long:  "Inspect and enable product features such as rtc, rtm, and convoai for a remote Agora project.",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project feature list
   agora project feature status convoai
   agora project feature enable rtm my-agent-demo
@@ -648,7 +781,7 @@ func (a *App) buildProjectFeature() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list [project]",
 		Short: "List feature status for a project",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project feature list
   agora project feature list my-agent-demo
 `),
@@ -671,7 +804,7 @@ func (a *App) buildProjectFeature() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "status <feature> [project]",
 		Short: "Show one feature status",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project feature status convoai
   agora project feature status rtm my-agent-demo
 `),
@@ -693,7 +826,7 @@ func (a *App) buildProjectFeature() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "enable <feature> [project]",
 		Short: "Enable one feature for a project",
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project feature enable convoai
   agora project feature enable rtm my-agent-demo
 `),
@@ -728,7 +861,7 @@ Exit codes:
   1  blocking project issues
   2  warnings
   3  auth or session issues`,
-		Example: strings.TrimSpace(`
+		Example: example(`
   agora project doctor
   agora project doctor --feature rtm
   agora project doctor --deep
@@ -743,9 +876,6 @@ Exit codes:
 				project = args[0]
 			}
 			result := a.projectDoctor(project, feature, deep)
-			if err := renderResult(cmd, "project doctor", result); err != nil {
-				return err
-			}
 			code := 0
 			switch result.Status {
 			case "auth_error":
@@ -754,6 +884,17 @@ Exit codes:
 				code = 1
 			case "warning":
 				code = 2
+			}
+			if a.resolveOutputMode(cmd) == outputJSON && code != 0 {
+				err := doctorEnvelopeError(result)
+				logPath := resolveLogFilePathForDisplay(a.env)
+				if emitErr := emitFailureEnvelopeWithData(cmd.OutOrStdout(), "project doctor", result, err, code, logPath, jsonPrettyFromContext(cmd)); emitErr != nil {
+					return emitErr
+				}
+				return &exitError{code: code}
+			}
+			if err := renderResult(cmd, "project doctor", result); err != nil {
+				return err
 			}
 			if code != 0 {
 				return &exitError{code: code}
@@ -764,4 +905,15 @@ Exit codes:
 	cmd.Flags().BoolVar(&deep, "deep", false, "run deeper repo-local checks for .agora metadata and quickstart env consistency")
 	cmd.Flags().StringVar(&feature, "feature", "convoai", "target feature readiness to evaluate: rtc, rtm, or convoai")
 	return cmd
+}
+
+func doctorEnvelopeError(result projectDoctorResult) error {
+	code := "PROJECT_NOT_READY"
+	if result.Status == "auth_error" {
+		code = "AUTH_UNAUTHENTICATED"
+	}
+	if len(result.BlockingIssues) > 0 && result.BlockingIssues[0].Code != "" {
+		code = result.BlockingIssues[0].Code
+	}
+	return &cliError{Message: result.Summary, Code: code}
 }

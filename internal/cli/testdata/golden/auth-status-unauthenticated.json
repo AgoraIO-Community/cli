@@ -1,0 +1,14 @@
+{
+  "command": "auth status",
+  "data": null,
+  "error": {
+    "code": "AUTH_UNAUTHENTICATED",
+    "logFilePath": "\u003cpath\u003e",
+    "message": "No local Agora session found. Run `agora login` first."
+  },
+  "meta": {
+    "exitCode": 3,
+    "outputMode": "json"
+  },
+  "ok": false
+}

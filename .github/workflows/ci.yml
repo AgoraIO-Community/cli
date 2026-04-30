@@ -34,7 +34,39 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test ./...
+        # -count=1 disables Go's test result cache so flaky CI nodes never
+        # surface a stale "PASS" from an earlier run on the same content.
+        run: go test -count=1 ./...
+
+      - name: Check Go formatting
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Audit error code coverage
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/check-error-codes.sh
+
+      - name: Check docs/commands.md is up to date
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # Generated reference must track the cobra tree. If this fails,
+          # run `make docs-commands` locally and commit the result.
+          go run ./cmd/gendocs -check
+
+      - name: golangci-lint
+        if: runner.os == 'Linux'
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          args: --timeout=5m
 
       - name: Build CLI
         shell: bash
@@ -170,16 +202,20 @@ jobs:
             & (Join-Path $installDir 'agora.exe') --help *> $null
 
             Set-Content -Path (Join-Path $downloadDir 'checksums.txt') -Value ('0' * 64 + "  $archive")
-            $failedAsExpected = $false
-            try {
-              & ./install.ps1 -InstallDir $badInstallDir
-            } catch {
-              $failedAsExpected = $true
+            $previousNativePreference = $PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+            pwsh -NoProfile -ExecutionPolicy Bypass -File ./install.ps1 -InstallDir $badInstallDir
+            $badExitCode = $LASTEXITCODE
+            $PSNativeCommandUseErrorActionPreference = $previousNativePreference
+            if ($badExitCode -eq 0) {
+              throw 'Expected checksum verification to fail with a non-zero exit code.'
             }
-
-            if (-not $failedAsExpected) {
-              throw 'Expected checksum verification to fail.'
-            }
+            # The expected non-zero $LASTEXITCODE from install.ps1 is good news
+            # for this assertion, but GitHub Actions' pwsh wrapper appends
+            # `if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }`,
+            # which would otherwise propagate that non-zero exit and fail the
+            # whole step. Clear it now that we have what we need.
+            $global:LASTEXITCODE = 0
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Remove-Item Env:VERSION, Env:RELEASES_DOWNLOAD_BASE_URL, Env:RELEASES_PAGE_URL -ErrorAction SilentlyContinue

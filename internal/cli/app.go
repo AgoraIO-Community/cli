@@ -1,41 +1,40 @@
+// Package cli implements the agora-cli-go binary. The package is structured
+// into focused files so each concern can be reasoned about independently:
+//
+//   - app.go       — App struct, Execute() entry point, output-mode resolver,
+//     cobra context keys, env snapshot, TTY detection.
+//   - config.go    — appConfig type, defaults, merge, env injection.
+//   - paths.go     — config / session / context file path resolution and
+//     secure I/O helpers (writeSecureJSON).
+//   - envelope.go  — JSON envelope shape, error envelope, exit-code plumbing,
+//     JSONRequested / JSONPrettyRequested helpers.
+//   - render.go    — pretty output dispatch (renderResult), printBlock,
+//     printDoctor, asString, redactSensitive.
+//   - version.go   — build-time injected version vars (version / commit / date)
+//     and versionInfo / formattedVersion helpers.
+//
+// Each command lives in its own *.go file and registers itself via the
+// build* methods in commands.go.
 package cli
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.4"
-
+// outputMode is the type backing both --output values and AGORA_OUTPUT.
+// The two valid values are exposed as constants below.
 type outputMode string
 
 const (
 	outputJSON   outputMode = "json"
 	outputPretty outputMode = "pretty"
 )
-
-type appConfig struct {
-	Version          int        `json:"version"`
-	APIBaseURL       string     `json:"apiBaseUrl"`
-	BrowserAutoOpen  bool       `json:"browserAutoOpen"`
-	LogLevel         string     `json:"logLevel"`
-	OAuthBaseURL     string     `json:"oauthBaseUrl"`
-	OAuthClientID    string     `json:"oauthClientId"`
-	OAuthScope       string     `json:"oauthScope"`
-	Output           outputMode `json:"output"`
-	TelemetryEnabled bool       `json:"telemetryEnabled"`
-	Verbose          bool       `json:"verbose"`
-}
 
 type session struct {
 	AccessToken  string `json:"accessToken"`
@@ -133,26 +132,22 @@ type projectDoctorResult struct {
 	Workspace      any                   `json:"workspace,omitempty"`
 }
 
-type jsonEnvelope struct {
-	OK      bool           `json:"ok"`
-	Command string         `json:"command"`
-	Data    any            `json:"data"`
-	Error   *envelopeError `json:"error,omitempty"`
-	Meta    map[string]any `json:"meta"`
-}
-
-type envelopeError struct {
-	Message     string `json:"message"`
-	LogFilePath string `json:"logFilePath,omitempty"`
-}
-
+// App is the top-level CLI runtime. One *App is built per process by NewApp,
+// owns the shared HTTP client, the loaded config, the env snapshots, and the
+// fully-built cobra root command.
 type App struct {
 	root              *cobra.Command
 	env               map[string]string
+	osEnv             map[string]string // raw OS env snapshot before applyConfigToEnv; used for CI detection & user-set env precedence
 	cfg               appConfig
 	cfgState          configState
 	rootOutput        string
 	rootJSON          bool
+	rootPrettyJSON    bool
+	rootQuiet         bool
+	rootNoColor       bool
+	rootUpgradeCheck  bool
+	rootVerbose       bool
 	httpClient        *http.Client
 	projectEnvProject string
 	projectEnvFormat  string
@@ -160,14 +155,22 @@ type App struct {
 	projectEnvSecrets bool
 }
 
+// NewApp boots the App: snapshot env (before any mutation), load or migrate
+// the config, then layer config defaults onto env. Returns an error if the
+// config directory or file cannot be created.
 func NewApp() (*App, error) {
 	env := snapshotEnv()
+	osEnv := make(map[string]string, len(env))
+	for k, v := range env {
+		osEnv[k] = v
+	}
 	state, err := ensureAppConfigState(env)
 	if err != nil {
 		return nil, err
 	}
 	a := &App{
 		env:        env,
+		osEnv:      osEnv,
 		cfg:        state.Config,
 		cfgState:   state,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
@@ -177,15 +180,21 @@ func NewApp() (*App, error) {
 	return a, nil
 }
 
+// Execute is the process entry point. It resolves the output mode, decides
+// whether to print the first-run config banner (suppressed in CI), runs the
+// cobra root, and routes any error through the JSON envelope or pretty
+// stderr path depending on the mode. Returns *exitError or *renderedError
+// for the cmd/main.go shim to translate into the process exit code.
 func (a *App) Execute() error {
-	mode := a.cfg.Output
-	if output := readRawFlagValue(os.Args[1:], "--output"); output == "json" || output == "pretty" {
-		mode = outputMode(output)
+	rawOutput := readRawFlagValue(os.Args[1:], "--output")
+	if rawOutput != "json" && rawOutput != "pretty" {
+		rawOutput = ""
 	}
+	mode := a.resolveOutputModeFromEnv(rawOutput)
 	if hasFlag(os.Args[1:], "--json") {
 		mode = outputJSON
 	}
-	if shouldPrintConfigBanner(mode, isTTY(os.Stderr), a.cfgState.Status) {
+	if shouldPrintConfigBannerWithEnv(mode, isTTY(os.Stderr), a.cfgState.Status, a.osEnv) {
 		if banner := formatConfigBanner(a.cfgState); banner != "" {
 			fmt.Fprintln(os.Stderr, banner)
 		}
@@ -194,60 +203,81 @@ func (a *App) Execute() error {
 		if _, ok := ExitCode(err); ok {
 			return err
 		}
+		exitCode := exitCodeForError(err)
 		logPath := resolveLogFilePathForDisplay(a.env)
 		_ = appendAppLog("error", "command.failed", a.env, map[string]any{
 			"error":       err.Error(),
 			"logFilePath": logPath,
 		})
 		if mode == outputJSON {
-			_ = emitErrorEnvelope(os.Stdout, a.guessCommandLabel(os.Args[1:]), err, 1, logPath)
+			_ = emitErrorEnvelope(os.Stdout, a.guessCommandLabel(os.Args[1:]), err, exitCode, logPath)
+			if exitCode != 1 {
+				return &exitError{code: exitCode}
+			}
 			return &renderedError{err: err}
 		}
 		fmt.Fprintln(os.Stderr, err.Error())
 		fmt.Fprintf(os.Stderr, "Detailed log: %s\n", logPath)
+		if exitCode != 1 {
+			return &exitError{code: exitCode}
+		}
 		return &renderedError{err: err}
 	}
 	return nil
 }
 
-func JSONRequested(args []string) bool {
-	for index := 0; index < len(args); index++ {
-		arg := args[index]
-		if arg == "--json" {
-			return true
-		}
-		if arg == "--output" && index+1 < len(args) && args[index+1] == "json" {
-			return true
-		}
-		if strings.HasPrefix(arg, "--output=") && strings.TrimPrefix(arg, "--output=") == "json" {
-			return true
+// resolveOutputMode is the per-command output-mode resolver, called by
+// PersistentPreRunE and any command needing to branch on JSON-vs-pretty
+// behavior. It honors both --json and --output flags and falls through to
+// the env / config / CI-auto-detect chain via resolveOutputModeFromEnv.
+func (a *App) resolveOutputMode(cmd *cobra.Command) outputMode {
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	if jsonFlag {
+		return outputJSON
+	}
+	output, _ := cmd.Flags().GetString("output")
+	return a.resolveOutputModeFromEnv(output)
+}
+
+// resolveOutputModeFromEnv applies the documented precedence:
+//
+//  1. Explicit --output flag wins.
+//  2. User-set AGORA_OUTPUT (in the original OS env) wins.
+//  3. Configured cfg.Output wins if user explicitly set it to JSON.
+//  4. CI environment auto-detect → JSON.
+//  5. Otherwise pretty.
+//
+// Step 2 reads from a.osEnv (the env snapshotted *before* applyConfigToEnv
+// injected the config defaults), so the config-default of "pretty" does not
+// shadow CI auto-detection. This makes the JSON-by-default-in-CI behavior
+// reliable while still honoring an explicit user override.
+func (a *App) resolveOutputModeFromEnv(raw string) outputMode {
+	if raw == "json" {
+		return outputJSON
+	}
+	if raw == "pretty" {
+		return outputPretty
+	}
+	if a.osEnv != nil {
+		switch a.osEnv["AGORA_OUTPUT"] {
+		case "json":
+			return outputJSON
+		case "pretty":
+			return outputPretty
 		}
 	}
-	return false
-}
-
-func EmitJSONError(command string, err error, exitCode int, logFilePath string) error {
-	return emitErrorEnvelope(os.Stdout, command, err, exitCode, logFilePath)
-}
-
-func readRawFlagValue(args []string, flag string) string {
-	for index := 0; index < len(args)-1; index++ {
-		if args[index] == flag {
-			return args[index+1]
-		}
+	if a.cfg.Output == outputJSON {
+		return outputJSON
 	}
-	return ""
-}
-
-func hasFlag(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
+	if isCIEnvironment(a.osEnv) {
+		return outputJSON
 	}
-	return false
+	return outputPretty
 }
 
+// guessCommandLabel inspects argv to recover the stable command label for
+// envelope output when an early failure (unknown command, missing required
+// flag) prevents the normal renderResult path from running.
 func (a *App) guessCommandLabel(args []string) string {
 	cmd, remaining, err := a.root.Find(args)
 	base := "agora"
@@ -258,10 +288,7 @@ func (a *App) guessCommandLabel(args []string) string {
 		}
 	}
 	if cmd != nil && cmd.HasAvailableSubCommands() {
-		for _, arg := range remaining {
-			if strings.HasPrefix(arg, "-") {
-				break
-			}
+		if arg := firstNonFlag(remaining); arg != "" {
 			if base == "agora" {
 				return arg
 			}
@@ -274,15 +301,22 @@ func (a *App) guessCommandLabel(args []string) string {
 	if label := guessUnknownCommandLabel(err.Error()); label != "" {
 		return label
 	}
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			break
-		}
+	if arg := firstNonFlag(args); arg != "" {
 		return arg
 	}
 	return "agora"
 }
 
+func firstNonFlag(args []string) string {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return ""
+	}
+	return args[0]
+}
+
+// guessUnknownCommandLabel parses Cobra's `unknown command "X" for "agora Y"`
+// error string back into a "Y X" label so the JSON envelope reports the
+// command the user attempted, not the literal string "agora".
 func guessUnknownCommandLabel(message string) string {
 	const prefix = `unknown command "`
 	start := strings.Index(message, prefix)
@@ -312,6 +346,9 @@ func guessUnknownCommandLabel(message string) string {
 	return strings.TrimSpace(base + " " + unknown)
 }
 
+// snapshotEnv copies the current process environment into a map so the App
+// can carry an env-like view that we are free to mutate (via applyConfigToEnv)
+// without leaking back into the OS-level environ.
 func snapshotEnv() map[string]string {
 	env := map[string]string{}
 	for _, pair := range os.Environ() {
@@ -323,84 +360,8 @@ func snapshotEnv() map[string]string {
 	return env
 }
 
-func defaultConfig() appConfig {
-	return appConfig{
-		Version:          2,
-		APIBaseURL:       "https://agora-cli.agora.io",
-		BrowserAutoOpen:  true,
-		LogLevel:         "info",
-		OAuthBaseURL:     "https://sso2.agora.io",
-		OAuthClientID:    "agora_web_cli",
-		OAuthScope:       "basic_info,console",
-		Output:           outputPretty,
-		TelemetryEnabled: true,
-		Verbose:          false,
-	}
-}
-
-func ensureAppConfig() (appConfig, error) {
-	state, err := ensureAppConfigState(snapshotEnv())
-	if err != nil {
-		return appConfig{}, err
-	}
-	return state.Config, nil
-}
-
-func mergeConfig(cfg *appConfig, raw map[string]any) {
-	if v, ok := raw["apiBaseUrl"].(string); ok && v != "" {
-		cfg.APIBaseURL = v
-	}
-	if v, ok := raw["browserAutoOpen"].(bool); ok {
-		cfg.BrowserAutoOpen = v
-	}
-	if v, ok := raw["logLevel"].(string); ok && v != "" {
-		cfg.LogLevel = v
-	}
-	if v, ok := raw["oauthBaseUrl"].(string); ok && v != "" {
-		cfg.OAuthBaseURL = v
-	}
-	if v, ok := raw["oauthClientId"].(string); ok && v != "" {
-		cfg.OAuthClientID = v
-	}
-	if v, ok := raw["oauthScope"].(string); ok && v != "" {
-		cfg.OAuthScope = v
-	}
-	if v, ok := raw["output"].(string); ok && (v == "json" || v == "pretty") {
-		cfg.Output = outputMode(v)
-	}
-	if v, ok := raw["telemetryEnabled"].(bool); ok {
-		cfg.TelemetryEnabled = v
-	}
-	if v, ok := raw["verbose"].(bool); ok {
-		cfg.Verbose = v
-	}
-}
-
-func (a *App) applyConfigToEnv() {
-	a.setEnvIfMissing("AGORA_API_BASE_URL", a.cfg.APIBaseURL)
-	a.setEnvIfMissing("AGORA_OAUTH_BASE_URL", a.cfg.OAuthBaseURL)
-	a.setEnvIfMissing("AGORA_OAUTH_CLIENT_ID", a.cfg.OAuthClientID)
-	a.setEnvIfMissing("AGORA_OAUTH_SCOPE", a.cfg.OAuthScope)
-	a.setEnvIfMissing("AGORA_OUTPUT", string(a.cfg.Output))
-	a.setEnvIfMissing("AGORA_SENTRY_ENABLED", boolString(a.cfg.TelemetryEnabled))
-	a.setEnvIfMissing("AGORA_BROWSER_AUTO_OPEN", boolString(a.cfg.BrowserAutoOpen))
-	a.setEnvIfMissing("AGORA_LOG_LEVEL", a.cfg.LogLevel)
-	a.setEnvIfMissing("AGORA_VERBOSE", boolString(a.cfg.Verbose))
-}
-
-func (a *App) setEnvIfMissing(key, value string) {
-	if _, ok := a.env[key]; !ok && value != "" {
-		a.env[key] = value
-	}
-}
-
-func boolString(v bool) string {
-	if v {
-		return "1"
-	}
-	return "0"
-}
-
+// isTTY reports whether the given file is connected to a terminal. Used for
+// the first-run banner, interactive prompts, and color decisions.
 func isTTY(file *os.File) bool {
 	info, err := file.Stat()
 	if err != nil {
@@ -409,439 +370,10 @@ func isTTY(file *os.File) bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
-func resolveConfigRoot(env map[string]string) (string, error) {
-	if v := strings.TrimSpace(env["AGORA_HOME"]); v != "" {
-		return v, nil
-	}
-	if v := strings.TrimSpace(env["XDG_CONFIG_HOME"]); v != "" {
-		return v, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, ".agora-cli"), nil
-	}
-	if v := strings.TrimSpace(env["APPDATA"]); v != "" {
-		return v, nil
-	}
-	return filepath.Join(home, ".config"), nil
-}
-
-func resolveAgoraDirectory(env map[string]string) (string, error) {
-	root, err := resolveConfigRoot(env)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(env["AGORA_HOME"]) != "" {
-		return root, nil
-	}
-	hasExplicitRoot := strings.TrimSpace(env["XDG_CONFIG_HOME"]) != "" || strings.TrimSpace(env["APPDATA"]) != ""
-	if runtime.GOOS == "darwin" && !hasExplicitRoot {
-		return root, nil
-	}
-	return filepath.Join(root, "agora-cli"), nil
-}
-
-func resolveConfigFilePath(env map[string]string) (string, error) {
-	dir, err := resolveAgoraDirectory(env)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "config.json"), nil
-}
-
-func resolveSessionFilePath(env map[string]string) (string, error) {
-	dir, err := resolveAgoraDirectory(env)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "session.json"), nil
-}
-
-func resolveContextFilePath(env map[string]string) (string, error) {
-	dir, err := resolveAgoraDirectory(env)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "context.json"), nil
-}
-
-func writeSecureJSON(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func loadContext(env map[string]string) (projectContext, error) {
-	path, err := resolveContextFilePath(env)
-	if err != nil {
-		return projectContext{}, err
-	}
-	ctx := projectContext{CurrentRegion: "global", PreferredRegion: "global"}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return ctx, nil
-	}
-	if err != nil {
-		return projectContext{}, err
-	}
-	if err := json.Unmarshal(data, &ctx); err != nil {
-		return projectContext{}, err
-	}
-	if ctx.CurrentRegion == "" {
-		ctx.CurrentRegion = "global"
-	}
-	if ctx.PreferredRegion == "" {
-		ctx.PreferredRegion = "global"
-	}
-	return ctx, nil
-}
-
-func saveContext(env map[string]string, ctx projectContext) error {
-	path, err := resolveContextFilePath(env)
-	if err != nil {
-		return err
-	}
-	return writeSecureJSON(path, ctx)
-}
-
-func clearContext(env map[string]string) error {
-	path, err := resolveContextFilePath(env)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func loadSession(env map[string]string) (*session, error) {
-	path, err := resolveSessionFilePath(env)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var s session
-	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
-
-func saveSession(env map[string]string, s session) error {
-	path, err := resolveSessionFilePath(env)
-	if err != nil {
-		return err
-	}
-	return writeSecureJSON(path, s)
-}
-
-func clearSession(env map[string]string) (bool, error) {
-	path, err := resolveSessionFilePath(env)
-	if err != nil {
-		return false, err
-	}
-	if err := os.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-func (a *App) resolveOutputMode(cmd *cobra.Command) outputMode {
-	jsonFlag, _ := cmd.Flags().GetBool("json")
-	if jsonFlag {
-		return outputJSON
-	}
-	output, _ := cmd.Flags().GetString("output")
-	return resolveConfiguredOutputMode(output, a.env)
-}
-
-func emitEnvelope(out io.Writer, command string, data any) error {
-	return json.NewEncoder(out).Encode(jsonEnvelope{
-		OK:      true,
-		Command: command,
-		Data:    data,
-		Meta:    map[string]any{"outputMode": "json"},
-	})
-}
-
-func emitErrorEnvelope(out io.Writer, command string, err error, exitCode int, logFilePath string) error {
-	meta := map[string]any{
-		"outputMode": "json",
-		"exitCode":   exitCode,
-	}
-	return json.NewEncoder(out).Encode(jsonEnvelope{
-		OK:      false,
-		Command: command,
-		Data:    nil,
-		Error: &envelopeError{
-			Message:     err.Error(),
-			LogFilePath: logFilePath,
-		},
-		Meta: meta,
-	})
-}
-
-func renderResult(cmd *cobra.Command, command string, data any) error {
-	out := cmd.OutOrStdout()
-	if aMode := cmd.Context().Value(contextKeyOutputMode{}); aMode != nil && aMode.(outputMode) == outputJSON {
-		return emitEnvelope(out, command, data)
-	}
-	switch command {
-	case "login":
-		m := data.(map[string]any)
-		printBlock(out, "Login", [][2]string{{"Status", asString(m["status"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
-	case "logout":
-		m := data.(map[string]any)
-		printBlock(out, "Logout", [][2]string{{"Status", asString(m["status"])}, {"Session Cleared", asString(m["clearedSession"])}})
-	case "auth status":
-		m := data.(map[string]any)
-		printBlock(out, "Auth", [][2]string{{"Status", asString(m["status"])}, {"Authenticated", asString(m["authenticated"])}, {"Scope", asString(m["scope"])}, {"Expires At", asString(m["expiresAt"])}})
-	case "project create":
-		m := data.(map[string]any)
-		features := "-"
-		if list, ok := m["enabledFeatures"].([]string); ok {
-			features = strings.Join(list, ", ")
-		}
-		printBlock(out, "Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"Region", asString(m["region"])}, {"Features", features}})
-	case "project use":
-		m := data.(map[string]any)
-		printBlock(out, "Current Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Region", asString(m["region"])}})
-	case "project show":
-		m := data.(map[string]any)
-		printBlock(out, "Project", [][2]string{{"Name", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"App ID", asString(m["appId"])}, {"App Certificate", redactSensitive(m["appCertificate"])}, {"Region", asString(m["region"])}, {"Token Enabled", asString(m["tokenEnabled"])}})
-	case "project env write":
-		m := data.(map[string]any)
-		printBlock(out, "Project Env", [][2]string{{"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Path", asString(m["path"])}, {"Status", asString(m["status"])}})
-	case "project env":
-		m := data.(map[string]any)
-		valuesText := renderProjectEnv(m["values"].(map[string]any), envDotenv)
-		printBlock(out, "Project Env", [][2]string{{"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Region", asString(m["region"])}})
-		fmt.Fprintln(out)
-		fmt.Fprint(out, valuesText)
-	case "quickstart list":
-		m := data.(map[string]any)
-		fmt.Fprintln(out, "Quickstarts")
-		if items, ok := m["items"].([]map[string]any); ok {
-			for _, item := range items {
-				fmt.Fprintf(out, "- %s: %s\n", asString(item["id"]), asString(item["title"]))
-				fmt.Fprintf(out, "  Available: %s\n", asString(item["available"]))
-				fmt.Fprintf(out, "  Runtime: %s\n", asString(item["runtime"]))
-				fmt.Fprintf(out, "  Supports Init: %s\n", asString(item["supportsInit"]))
-				fmt.Fprintf(out, "  Env: %s\n", asString(item["envDocs"]))
-				fmt.Fprintf(out, "  Repo: %s\n", asString(item["repoUrl"]))
-			}
-		}
-	case "quickstart create":
-		m := data.(map[string]any)
-		printBlock(out, "Quickstart", [][2]string{{"Template", asString(m["template"])}, {"Path", asString(m["path"])}, {"Project", asString(m["projectName"])}, {"Env", asString(m["envStatus"])}, {"Metadata", asString(m["metadataPath"])}, {"Status", asString(m["status"])}})
-	case "quickstart env write":
-		m := data.(map[string]any)
-		printBlock(out, "Quickstart Env", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Metadata", asString(m["metadataPath"])}, {"Status", asString(m["status"])}})
-	case "init":
-		m := data.(map[string]any)
-		features := "-"
-		if list, ok := m["enabledFeatures"].([]string); ok && len(list) > 0 {
-			features = strings.Join(list, ", ")
-		}
-		printBlock(out, "Init", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Project ID", asString(m["projectId"])}, {"Project Action", asString(m["projectAction"])}, {"Region", asString(m["region"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Metadata", asString(m["metadataPath"])}, {"Features", features}, {"Status", asString(m["status"])}})
-		if steps, ok := m["nextSteps"].([]string); ok && len(steps) > 0 {
-			fmt.Fprintln(out)
-			fmt.Fprintln(out, "Next Steps")
-			for _, step := range steps {
-				fmt.Fprintf(out, "- %s\n", step)
-			}
-		}
-	case "project feature list":
-		m := data.(map[string]any)
-		fmt.Fprintf(out, "Project Features: %s\n", asString(m["projectName"]))
-		if items, ok := m["items"].([]featureItem); ok {
-			for _, item := range items {
-				fmt.Fprintf(out, "- %s: %s (%s)\n", item.Feature, item.Status, item.Message)
-			}
-		}
-	case "project feature status", "project feature enable":
-		m := data.(map[string]any)
-		printBlock(out, "Feature", [][2]string{{"Feature", asString(m["feature"])}, {"Project", asString(m["projectName"])}, {"Status", asString(m["status"])}, {"Message", asString(m["message"])}})
-	case "project list":
-		m := data.(map[string]any)
-		total, _ := m["total"].(int)
-		page, _ := m["page"].(int)
-		pageSize, _ := m["pageSize"].(int)
-		if pageSize <= 0 {
-			pageSize = 20
-		}
-		totalPages := (total + pageSize - 1) / pageSize
-		if totalPages == 0 {
-			totalPages = 1
-		}
-		count := 0
-		if items, ok := m["items"].([]projectSummary); ok {
-			count = len(items)
-		}
-		printBlock(out, "Projects", [][2]string{
-			{"Total", asString(total)},
-			{"Page", fmt.Sprintf("%d of %d (showing %d)", page, totalPages, count)},
-		})
-		fmt.Fprintln(out)
-		if items, ok := m["items"].([]projectSummary); ok {
-			for _, item := range items {
-				fmt.Fprintln(out, item.Name)
-				printBlock(out, "", [][2]string{{"Project ID", item.ProjectID}, {"Type", item.ProjectType}, {"Status", item.Status}})
-				fmt.Fprintln(out)
-			}
-		}
-	case "project doctor":
-		return printDoctor(out, data.(projectDoctorResult))
-	default:
-		encoded, _ := json.MarshalIndent(data, "", "  ")
-		fmt.Fprintf(out, "%s\n%s\n", command, string(encoded))
-	}
-	return nil
-}
-
-func asString(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "-"
-	case string:
-		if x == "" {
-			return "-"
-		}
-		return x
-	case bool:
-		if x {
-			return "yes"
-		}
-		return "no"
-	default:
-		return fmt.Sprint(v)
-	}
-}
-
-func redactSensitive(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "-"
-	case *string:
-		if x == nil || *x == "" {
-			return "-"
-		}
-		return "[hidden]"
-	case string:
-		if x == "" {
-			return "-"
-		}
-		return "[hidden]"
-	default:
-		return "-"
-	}
-}
-
-func printBlock(out io.Writer, title string, rows [][2]string) {
-	width := 0
-	for _, row := range rows {
-		if len(row[0]) > width {
-			width = len(row[0])
-		}
-	}
-	if title != "" {
-		fmt.Fprintln(out, title)
-	}
-	for _, row := range rows {
-		fmt.Fprintf(out, "%-*s : %s\n", width, row[0], row[1])
-	}
-}
-
-func printDoctor(out io.Writer, result projectDoctorResult) error {
-	if m, ok := result.Project.(map[string]any); ok {
-		fmt.Fprintf(out, "Checking project: %s\n", asString(m["name"]))
-		mode := "Mode: " + asString(result.Feature)
-		if result.Mode == "deep" {
-			mode += " (deep)"
-		}
-		fmt.Fprintf(out, "%s\n\n", mode)
-	}
-	for _, category := range result.Checks {
-		fmt.Fprintf(out, "%s\n", strings.ToUpper(category.Category[:1])+category.Category[1:])
-		for _, item := range category.Items {
-			marker := map[string]string{"pass": "✓", "warn": "!", "skipped": "-", "fail": "✗"}[item.Status]
-			fmt.Fprintf(out, "  %s %s\n", marker, item.Message)
-			if item.SuggestedCommand != "" {
-				fmt.Fprintf(out, "    Run: %s\n", item.SuggestedCommand)
-			}
-		}
-		fmt.Fprintln(out)
-	}
-	fmt.Fprintln(out, "Summary")
-	marker := "✗"
-	if result.Healthy {
-		marker = "✓"
-	} else if result.Status == "warning" {
-		marker = "!"
-	}
-	fmt.Fprintf(out, "  %s %s\n", marker, result.Summary)
-	return nil
-}
-
+// Cobra context keys: persistent root flags are propagated to subcommands
+// through the cmd Context() so handlers can read them without re-walking
+// the flag set.
 type contextKeyOutputMode struct{}
-type exitCodeKey struct{}
-type exitError struct{ code int }
-type renderedError struct{ err error }
-
-func (e *exitError) Error() string     { return "" }
-func (e *renderedError) Error() string { return e.err.Error() }
-func ExitCode(err error) (int, bool) {
-	var exitErr *exitError
-	if errors.As(err, &exitErr) {
-		return exitErr.code, true
-	}
-	return 0, false
-}
-
-func ErrorRendered(err error) bool {
-	var rendered *renderedError
-	return errors.As(err, &rendered)
-}
-
-func exitIfNeeded(cmd *cobra.Command) error {
-	if code, ok := cmd.Context().Value(exitCodeKey{}).(int); ok && code != 0 {
-		return &exitError{code: code}
-	}
-	return nil
-}
-
-type outputModeValue struct{ target *string }
-
-func newOutputModeValue(target *string) *outputModeValue { return &outputModeValue{target: target} }
-func (v *outputModeValue) String() string {
-	if v.target == nil {
-		return ""
-	}
-	return *v.target
-}
-func (v *outputModeValue) Set(value string) error {
-	if value != "json" && value != "pretty" {
-		return errors.New("--output must be one of: json, pretty")
-	}
-	*v.target = value
-	return nil
-}
-func (v *outputModeValue) Type() string { return "output" }
+type contextKeyJSONPretty struct{}
+type contextKeyQuiet struct{}
+type contextKeyNoColor struct{}

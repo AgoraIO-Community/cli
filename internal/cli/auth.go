@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -20,7 +21,7 @@ import (
 	"time"
 )
 
-func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
+func (a *App) login(noBrowser bool, region string, progress progressEmitter) (map[string]any, error) {
 	config := a.oauthConfig()
 	pair, err := generatePKCE()
 	if err != nil {
@@ -59,10 +60,12 @@ func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
 			fmt.Fprintln(os.Stderr, "Browser did not open automatically. Copy the URL above or re-run with --no-browser.")
 		}
 	}
+	progress.emit("oauth:waiting", "Waiting for browser callback", map[string]any{"loginUrl": u.String(), "redirectUri": callback.RedirectURI, "timeoutMs": int(timeout / time.Millisecond)})
 	payload, err := callback.Wait()
 	if err != nil {
 		return nil, err
 	}
+	progress.emit("oauth:received", "Authorization code received; exchanging for token", nil)
 	token, err := a.exchangeAuthorizationCode(config.TokenURL, config.ClientID, payload.Code, pair.CodeVerifier, callback.RedirectURI)
 	if err != nil {
 		return nil, err
@@ -70,6 +73,7 @@ func (a *App) login(noBrowser bool, region string) (map[string]any, error) {
 	if err := saveSession(a.env, token); err != nil {
 		return nil, err
 	}
+	progress.emit("oauth:complete", "Session stored", nil)
 	ctx, err := loadContext(a.env)
 	if err != nil {
 		return nil, err
@@ -183,7 +187,12 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 	wait := make(chan callbackPayload, 1)
 	errs := make(chan error, 1)
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler: mux,
+		// Set ReadHeaderTimeout to mitigate Slowloris attacks (gosec G112).
+		// Even though this listens only on 127.0.0.1, we still bound it.
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -210,7 +219,7 @@ func waitForOAuthCallback(expectedState string, timeout time.Duration) (*callbac
 			errs <- errors.New("OAuth state mismatch.")
 		default:
 			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, "Agora CLI login complete. You can close this browser window.")
+			_, _ = io.WriteString(w, `<!doctype html><html><head><title>Agora CLI Login Complete</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family: system-ui, sans-serif; margin: 3rem; line-height: 1.5;"><h1>Agora CLI login complete</h1><p>You can close this browser window and return to your terminal.</p></body></html>`)
 			wait <- callbackPayload{Code: code, State: state}
 		}
 	})
@@ -326,8 +335,96 @@ func isAuthRequired(err error) bool {
 	if err == nil {
 		return false
 	}
+	var structured *cliError
+	if errors.As(err, &structured) && (structured.Code == "AUTH_UNAUTHENTICATED" || structured.Code == "AUTH_SESSION_EXPIRED") {
+		return true
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "Run `agora login` first") || strings.Contains(msg, "No refresh token available")
+}
+
+const noLocalSessionErrorMessage = "No local Agora session found. Run `agora login` first."
+
+func noLocalSessionError() error {
+	return &cliError{Message: noLocalSessionErrorMessage, Code: "AUTH_UNAUTHENTICATED"}
+}
+
+func currentOutputModeFromArgs(env map[string]string) outputMode {
+	mode := resolveConfiguredOutputMode("", env)
+	if output := readRawFlagValue(os.Args[1:], "--output"); output == "json" || output == "pretty" {
+		mode = outputMode(output)
+	}
+	if hasFlag(os.Args[1:], "--json") {
+		mode = outputJSON
+	}
+	return mode
+}
+
+func (a *App) shouldPromptForLogin() bool {
+	if currentOutputModeFromArgs(a.env) == outputJSON {
+		return false
+	}
+	if isCIEnvironment(a.osEnv) {
+		return false
+	}
+	return isTTY(os.Stdin)
+}
+
+func readConfirmYesDefault(in io.Reader, out io.Writer, prompt string) (bool, error) {
+	reader := bufio.NewReader(in)
+	for {
+		if _, err := fmt.Fprint(out, prompt); err != nil {
+			return false, err
+		}
+		answer, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false, err
+		}
+		normalized := strings.ToLower(strings.TrimSpace(answer))
+		switch normalized {
+		case "", "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		}
+		if _, writeErr := fmt.Fprintln(out, "Please answer y or n."); writeErr != nil {
+			return false, writeErr
+		}
+		if errors.Is(err, io.EOF) {
+			return false, io.EOF
+		}
+	}
+}
+
+func (a *App) loginPromptRegion() string {
+	ctx, err := loadContext(a.env)
+	if err != nil {
+		return ""
+	}
+	if ctx.PreferredRegion == "global" || ctx.PreferredRegion == "cn" {
+		return ctx.PreferredRegion
+	}
+	return ""
+}
+
+func (a *App) promptForLogin() error {
+	if !a.shouldPromptForLogin() {
+		return noLocalSessionError()
+	}
+	if _, err := fmt.Fprintln(os.Stderr, "This command requires an Agora account."); err != nil {
+		return err
+	}
+	confirm, err := readConfirmYesDefault(os.Stdin, os.Stderr, "Sign in now? [Y/n]: ")
+	if err != nil {
+		return err
+	}
+	if !confirm {
+		return noLocalSessionError()
+	}
+	// Interactive auth prompt path is pretty-only by construction
+	// (shouldPromptForLogin gates JSON/CI), so no progress emitter is needed.
+	_, err = a.login(false, a.loginPromptRegion(), nil)
+	return err
 }
 
 func (a *App) ensureValidAccessToken() (*session, error) {
@@ -336,7 +433,16 @@ func (a *App) ensureValidAccessToken() (*session, error) {
 		return nil, err
 	}
 	if s == nil {
-		return nil, errors.New("No local Agora session found. Run `agora login` first.")
+		if err := a.promptForLogin(); err != nil {
+			return nil, err
+		}
+		s, err = loadSession(a.env)
+		if err != nil {
+			return nil, err
+		}
+		if s == nil {
+			return nil, noLocalSessionError()
+		}
 	}
 	expiry, err := time.Parse(time.RFC3339, s.ExpiresAt)
 	if err != nil {
@@ -386,6 +492,7 @@ func (a *App) apiRequest(method, pathname string, query map[string]string, body 
 			return nil, err
 		}
 		req.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
+		req.Header.Set("User-Agent", agoraUserAgent(a.env))
 		if body != nil {
 			req.Header.Set("content-type", "application/json")
 		}
@@ -415,11 +522,69 @@ func (a *App) apiRequest(method, pathname string, query map[string]string, body 
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			if resp.StatusCode == http.StatusUnauthorized {
-				return fmt.Errorf("session expired or invalid. Run `agora login` to re-authenticate.")
+				return &cliError{
+					Message:    "session expired or invalid. Run `agora login` to re-authenticate.",
+					Code:       "AUTH_SESSION_EXPIRED",
+					HTTPStatus: resp.StatusCode,
+					RequestID:  responseRequestID(resp.Header),
+				}
 			}
-			return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+			return apiResponseError(resp.StatusCode, raw, resp.Header)
 		}
 		return json.Unmarshal(raw, out)
 	}
 	return fmt.Errorf("%s %s failed after retry", method, pathname)
+}
+
+func agoraUserAgent(env map[string]string) string {
+	base := "agora-cli/" + version
+	if agent := strings.TrimSpace(env["AGORA_AGENT"]); agent != "" {
+		return base + " agent/" + sanitizeUserAgentToken(agent)
+	}
+	return base
+}
+
+func sanitizeUserAgentToken(value string) string {
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	return strings.TrimSpace(value)
+}
+
+func apiResponseError(statusCode int, raw []byte, header http.Header) error {
+	detail := strings.TrimSpace(string(raw))
+	code := ""
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err == nil {
+		code = firstString(parsed, "code", "errorCode", "error_code")
+		if message := firstString(parsed, "message", "error", "error_description"); message != "" {
+			detail = message
+		}
+	}
+	if detail == "" {
+		detail = http.StatusText(statusCode)
+	}
+	return &cliError{
+		Message:    fmt.Sprintf("API error (HTTP %d): %s", statusCode, detail),
+		Code:       code,
+		HTTPStatus: statusCode,
+		RequestID:  responseRequestID(header),
+	}
+}
+
+func firstString(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func responseRequestID(header http.Header) string {
+	for _, key := range []string{"X-Request-ID", "X-Agora-Request-ID", "X-Trace-ID"} {
+		if value := strings.TrimSpace(header.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -4,15 +4,27 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, run npm publish --dry-run only (validates packaging without publishing). The goreleaser job is skipped on workflow_dispatch."
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: write   # create GitHub release artifacts for installers
   packages: write   # push to GitHub Container Registry (Docker)
+  id-token: write   # required for npm provenance attestations (sigstore)
 
 jobs:
   goreleaser:
     name: Release
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
 
     steps:
       - name: Check out repository
@@ -25,6 +37,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Verify generated command reference matches the cobra tree
+        # Last line of defense: if a tag was pushed without regenerating
+        # docs/commands.md, fail the release here rather than ship a doc
+        # that lies about the binary inside the release.
+        shell: bash
+        run: go run ./cmd/gendocs -check
+
+      - name: Upload command reference to the GitHub release
+        # Attach the human-readable command reference next to the binaries
+        # so users can browse the exact command tree shipped in this tag.
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: docs/commands.md
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -39,6 +69,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Install Syft for SBOM generation. GoReleaser invokes `syft` directly
+      # via the `sboms:` stanza in .goreleaser.yaml.
+      - name: Install Syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0.17.8
+
+      # Install Cosign for keyless signing of release artifacts and Docker
+      # images. The release job already requests `id-token: write`, which is
+      # what keyless cosign needs to mint a Sigstore certificate from the
+      # GitHub Actions OIDC provider.
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -47,10 +89,243 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Keyless cosign signs through the workflow's OIDC token. The
+          # COSIGN_EXPERIMENTAL flag is no longer required on cosign v2
+          # but we set it for forward compatibility with older runners.
+          COSIGN_EXPERIMENTAL: "true"
+          COSIGN_YES: "true"
 
-  # npm publishing disabled until the npm distribution channel is supported again.
-  # publish-npm:
-  #   name: Publish npm packages
-  #   needs: goreleaser
-  #   runs-on: ubuntu-latest
-  #   ...
+  publish-npm:
+    name: Publish npm packages
+    # Run after goreleaser on tag pushes; on workflow_dispatch run independently in dry-run mode.
+    needs: [goreleaser]
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && needs.goreleaser.result == 'success'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve target version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # No tag on manual dispatch; use a placeholder. Dry-run only validates packaging.
+            ref="${GITHUB_SHA::7}"
+            echo "tag=v0.0.0-dryrun-${ref}" >> "$GITHUB_OUTPUT"
+            echo "version=0.0.0-dryrun-${ref}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${GITHUB_REF_NAME}"
+            echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide dry-run vs publish
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual dispatch is dry-run by default (input gates this).
+            publish_args="--dry-run"
+            mode="dry-run (workflow_dispatch)"
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            publish_args="--dry-run"
+            mode="dry-run (input)"
+          else
+            publish_args=""
+            mode="publish"
+          fi
+          echo "publish_args=${publish_args}" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "Mode: ${mode}"
+
+      - name: Download binaries from release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ steps.ver.outputs.tag }}" \
+            --pattern "agora-cli-go_*" \
+            --pattern "checksums.txt" \
+            --dir dist
+          echo "Downloaded artifacts:"
+          ls -la dist/
+
+      - name: Verify SHA-256 checksums of downloaded archives
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f dist/checksums.txt ]; then
+            echo "::error::checksums.txt not found in release artifacts; refusing to publish unverified binaries."
+            exit 1
+          fi
+          cd dist
+          echo "Verifying archives against checksums.txt..."
+          # GoReleaser checksums.txt format: <sha256>  <filename>
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            expected_sha="$(echo "$line" | awk '{print $1}')"
+            file="$(echo "$line" | awk '{print $2}')"
+            # Only verify our archive files (not e.g. .deb/.rpm we don't repackage).
+            case "$file" in
+              agora-cli-go_*_linux_*.tar.gz|agora-cli-go_*_darwin_*.tar.gz|agora-cli-go_*_windows_*.zip) ;;
+              *) continue ;;
+            esac
+            if [ ! -f "$file" ]; then
+              echo "::error::Expected archive $file referenced in checksums.txt is missing from release."
+              exit 1
+            fi
+            actual_sha="$(sha256sum "$file" | awk '{print $1}')"
+            if [ "$expected_sha" != "$actual_sha" ]; then
+              echo "::error::Checksum mismatch for $file"
+              echo "  expected: $expected_sha"
+              echo "  actual:   $actual_sha"
+              exit 1
+            fi
+            echo "  ok: $file"
+          done < checksums.txt
+          echo "All archives verified."
+
+      - name: Stage binaries into platform packages (push only)
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.ver.outputs.tag }}"
+
+          stage_platform() {
+            local goos="$1" goarch="$2" npm_pkg="$3" bin_name="$4" archive_ext="$5"
+            local pkg_dir="packaging/npm/@agoraio/${npm_pkg}"
+            local archive="agora-cli-go_${tag}_${goos}_${goarch}.${archive_ext}"
+
+            mkdir -p "${pkg_dir}/bin"
+            if [ "$archive_ext" = "zip" ]; then
+              unzip -p "dist/${archive}" "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
+            else
+              tar -xzf "dist/${archive}" -O "${bin_name}" > "${pkg_dir}/bin/${bin_name}"
+            fi
+            chmod +x "${pkg_dir}/bin/${bin_name}" 2>/dev/null || true
+            echo "  staged: ${pkg_dir}/bin/${bin_name}"
+          }
+
+          stage_platform darwin  arm64 cli-darwin-arm64 agora     tar.gz
+          stage_platform darwin  amd64 cli-darwin-x64   agora     tar.gz
+          stage_platform linux   arm64 cli-linux-arm64  agora     tar.gz
+          stage_platform linux   amd64 cli-linux-x64    agora     tar.gz
+          stage_platform windows amd64 cli-win32-x64    agora.exe zip
+          stage_platform windows arm64 cli-win32-arm64  agora.exe zip
+
+      - name: Stamp version into all package.json files
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          echo "Stamping version: $version"
+
+          for pkg in \
+            packaging/npm/@agoraio/cli-darwin-arm64 \
+            packaging/npm/@agoraio/cli-darwin-x64 \
+            packaging/npm/@agoraio/cli-linux-arm64 \
+            packaging/npm/@agoraio/cli-linux-x64 \
+            packaging/npm/@agoraio/cli-win32-x64 \
+            packaging/npm/@agoraio/cli-win32-arm64; do
+            tmp=$(mktemp)
+            jq --arg v "$version" '.version = $v' "${pkg}/package.json" > "$tmp"
+            mv "$tmp" "${pkg}/package.json"
+          done
+
+          # Wrapper: stamp .version AND every optionalDependencies value to match.
+          tmp=$(mktemp)
+          jq --arg v "$version" '
+            .version = $v |
+            .optionalDependencies |= with_entries(.value = $v)
+          ' packaging/npm/agoraio-cli/package.json > "$tmp"
+          mv "$tmp" packaging/npm/agoraio-cli/package.json
+
+      - name: Publish platform packages
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PUBLISH_ARGS: ${{ steps.mode.outputs.publish_args }}
+        run: |
+          set -euo pipefail
+          for pkg in \
+            packaging/npm/@agoraio/cli-darwin-arm64 \
+            packaging/npm/@agoraio/cli-darwin-x64 \
+            packaging/npm/@agoraio/cli-linux-arm64 \
+            packaging/npm/@agoraio/cli-linux-x64 \
+            packaging/npm/@agoraio/cli-win32-x64 \
+            packaging/npm/@agoraio/cli-win32-arm64; do
+            echo "Publishing $pkg ${PUBLISH_ARGS}"
+            # --provenance is honored by publishConfig.provenance; passing here for clarity.
+            # When PUBLISH_ARGS contains --dry-run, no provenance attestation is created.
+            if [ -n "$PUBLISH_ARGS" ]; then
+              npm publish "$pkg" --access public $PUBLISH_ARGS
+            else
+              npm publish "$pkg" --access public --provenance
+            fi
+          done
+
+      - name: Publish wrapper package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PUBLISH_ARGS: ${{ steps.mode.outputs.publish_args }}
+        run: |
+          set -euo pipefail
+          pkg="packaging/npm/agoraio-cli"
+          echo "Publishing $pkg ${PUBLISH_ARGS}"
+          if [ -n "$PUBLISH_ARGS" ]; then
+            npm publish "$pkg" --access public $PUBLISH_ARGS
+          else
+            npm publish "$pkg" --access public --provenance
+          fi
+
+      - name: Smoke test published wrapper
+        if: steps.mode.outputs.mode == 'publish'
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # npm registry can take a minute to propagate after publish; retry with backoff.
+          attempt=0
+          max_attempts=6
+          delay=10
+          while : ; do
+            attempt=$((attempt + 1))
+            echo "Smoke test attempt ${attempt}/${max_attempts} (npx agoraio-cli@${EXPECTED_VERSION} --version)"
+            if output="$(npx --yes "agoraio-cli@${EXPECTED_VERSION}" --version 2>&1)"; then
+              echo "$output"
+              # CLI prints: "agora <version> (commit <sha>, built <date>)"
+              if echo "$output" | grep -qE "agora ${EXPECTED_VERSION}([[:space:]]|$|\()"; then
+                echo "::notice::Smoke test passed for agoraio-cli@${EXPECTED_VERSION}"
+                exit 0
+              else
+                echo "::warning::Output did not contain expected version string '${EXPECTED_VERSION}'."
+              fi
+            else
+              echo "Attempt failed: $output"
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::Smoke test failed after ${attempt} attempts."
+              exit 1
+            fi
+            sleep "$delay"
+            delay=$((delay * 2))
+          done

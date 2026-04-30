@@ -1,0 +1,7 @@
+[
+  {
+    "command": "upgrade check",
+    "short": "Print package-manager-specific upgrade guidance and exit (root flag, not a subcommand).",
+    "trigger": "agora --upgrade-check"
+  }
+]
