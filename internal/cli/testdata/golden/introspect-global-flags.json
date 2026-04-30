@@ -33,5 +33,10 @@
     "name": "verbose",
     "type": "bool",
     "usage": "echo structured logs to stderr (equivalent to AGORA_VERBOSE=1); does not change exit codes or JSON envelopes"
+  },
+  {
+    "name": "yes",
+    "type": "bool",
+    "usage": "accept default answers and suppress interactive prompts (equivalent to AGORA_NO_INPUT=1)"
   }
 ]

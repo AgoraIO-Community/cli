@@ -38,6 +38,7 @@ func (a *App) buildInitCommand() *cobra.Command {
 	var region string
 	var rtmDataCenter string
 	var features []string
+	var agentRules []string
 	var newProject bool
 	cmd := &cobra.Command{
 		Use:   "init <name>",
@@ -58,7 +59,7 @@ Use --feature to specify which features to enable on a newly created project (re
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-				return fmt.Errorf("project name is required")
+				return &cliError{Message: "directory name is required", Code: "INIT_NAME_REQUIRED"}
 			}
 			if strings.TrimSpace(templateID) == "" {
 				selected, err := a.selectInitTemplate(cmd)
@@ -80,6 +81,7 @@ Use --feature to specify which features to enable on a newly created project (re
 			// default for --json / CI / non-TTY agent runs.
 			promptForReuse := strings.TrimSpace(existingProject) == "" &&
 				!newProject &&
+				!a.noInput() &&
 				a.resolveOutputMode(cmd) != outputJSON &&
 				!isCIEnvironment(a.osEnv) &&
 				isTTY(os.Stdin)
@@ -87,6 +89,13 @@ Use --feature to specify which features to enable on a newly created project (re
 			result, err := a.initProject(args[0], targetDir, *template, existingProject, region, features, rtmDataCenter, newProject, promptForReuse, cmd.ErrOrStderr(), os.Stdin, progress)
 			if err != nil {
 				return err
+			}
+			if len(agentRules) > 0 {
+				written, err := writeAgentRules(asString(result["path"]), agentRules)
+				if err != nil {
+					return err
+				}
+				result["agentRules"] = written
 			}
 			return renderResult(cmd, "init", result)
 		},
@@ -97,11 +106,20 @@ Use --feature to specify which features to enable on a newly created project (re
 	cmd.Flags().StringVar(&region, "region", "", "control plane region for newly created projects (global or cn)")
 	cmd.Flags().StringVar(&rtmDataCenter, "rtm-data-center", "", "RTM data center to configure when rtm is enabled on a newly created project (CN, NA, EU, or AP); defaults to NA")
 	cmd.Flags().StringArrayVar(&features, "feature", nil, "enable a feature on the newly created project (repeatable); defaults to rtc, rtm, and convoai; convoai also enables rtm")
+	cmd.Flags().StringArrayVar(&agentRules, "add-agent-rules", nil, "write AI agent rules into the quickstart (repeatable: cursor, claude, windsurf)")
 	cmd.Flags().BoolVar(&newProject, "new-project", false, "always create a new Agora project instead of reusing an existing one")
 	return cmd
 }
 
 func (a *App) selectInitTemplate(cmd *cobra.Command) (string, error) {
+	if a.noInput() {
+		for _, template := range quickstartTemplates() {
+			if template.Available && template.SupportsInit {
+				return template.ID, nil
+			}
+		}
+		return "", &cliError{Message: "no init-compatible quickstart templates are available.", Code: "QUICKSTART_TEMPLATE_UNAVAILABLE"}
+	}
 	if a.resolveOutputMode(cmd) == outputJSON || isCIEnvironment(a.osEnv) || !isTTY(os.Stdin) {
 		return "", &cliError{Message: "quickstart template is required. Pass `--template` or run `agora quickstart list`.", Code: "QUICKSTART_TEMPLATE_REQUIRED"}
 	}
