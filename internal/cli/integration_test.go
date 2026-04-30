@@ -2,12 +2,10 @@ package cli
 
 // Shared infrastructure for the integration tests in this package.
 //
-// The CLI is exercised end-to-end by re-invoking the test binary with
-// GO_WANT_CLI_HELPER_PROCESS=1 set in the environment. TestMain detects
-// that flag, parses GO_CLI_HELPER_ARGS_JSON, boots a fresh *App, runs
-// Execute(), and translates the result into a process exit code -- all
-// without ever entering the testing framework's own argument parser.
-// runCLI spawns this helper and captures stdout / stderr / exit.
+// The CLI is exercised end-to-end by runCLI, which runs a fresh *App with
+// isolated env, cwd, stdout, and stderr for each invocation. TestMain still
+// supports GO_WANT_CLI_HELPER_PROCESS=1 as a manual debugging hook, but the
+// suite no longer depends on subprocess re-entry.
 //
 // The fakeOAuthServer and fakeCLIBFF stand in for the public OAuth flow and
 // the Agora CLI BFF, so we can assert request shapes (User-Agent, headers,
@@ -26,7 +24,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -53,12 +50,12 @@ type cliRunOptions struct {
 	onStderr func(string) bool
 }
 
-// TestMain is the canonical Go subprocess entry point. When the test binary
-// is re-invoked with GO_WANT_CLI_HELPER_PROCESS=1 (by runCLI) we run the
-// CLI directly and bypass the test framework entirely, so cobra never sees
-// any of go test's own flags. This is the documented pattern from the Go
-// stdlib (`os/exec` tests) and is more reliable cross-platform than
-// hijacking a normal Test* function.
+var cliRunMu sync.Mutex
+
+// TestMain keeps a manual subprocess entry point for debugging the harness.
+// Normal tests use runCLI in-process below; avoiding subprocess re-entry keeps
+// the integration suite deterministic across GitHub's Linux/macOS/Windows
+// runners while still exercising the same App.Execute path.
 func TestMain(m *testing.M) {
 	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") == "1" {
 		cliArgs := helperCLIArgs()
@@ -66,13 +63,13 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "agora-cli helper: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
 			os.Exit(64)
 		}
-		executeCLIHelper(cliArgs) // calls os.Exit
+		os.Exit(executeCLI(cliArgs))
 		return
 	}
 	os.Exit(m.Run())
 }
 
-func executeCLIHelper(cliArgs []string) {
+func executeCLI(cliArgs []string) int {
 	originalArgs := os.Args
 	defer func() { os.Args = originalArgs }()
 	os.Args = append([]string{"agora"}, cliArgs...)
@@ -81,23 +78,23 @@ func executeCLIHelper(cliArgs []string) {
 	if err != nil {
 		if JSONRequested(cliArgs) {
 			_ = EmitJSONError("agora", err, 1, "")
-			os.Exit(1)
+			return 1
 		}
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return 1
 	}
 	app.root.SetArgs(cliArgs)
 	if err := app.Execute(); err != nil {
 		if code, ok := ExitCode(err); ok {
-			os.Exit(code)
+			return code
 		}
 		if ErrorRendered(err) {
-			os.Exit(1)
+			return 1
 		}
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(0)
+	return 0
 }
 
 func helperCLIArgs() []string {
@@ -118,24 +115,17 @@ func helperCLIArgs() []string {
 	return nil
 }
 
-// runCLI spawns the test binary as a subprocess that reroutes through
-// TestMain (when GO_WANT_CLI_HELPER_PROCESS=1 is set), captures stdout
-// and stderr line-by-line, and returns the exit code. The optional
-// onStderr callback is invoked on every stderr line so tests can react
-// to interactive prompts (e.g. follow the OAuth URL the moment we see it).
+// runCLI executes the CLI in-process with isolated process globals, captures
+// stdout and stderr line-by-line, and returns the exit code. The optional
+// onStderr callback is invoked on every stderr line so tests can react to
+// interactive prompts (e.g. follow the OAuth URL the moment we see it).
 func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 	t.Helper()
-	cmd := exec.Command(os.Args[0])
-	if options.workdir != "" {
-		cmd.Dir = options.workdir
-	}
-	encodedArgs, err := json.Marshal(args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Env = helperEnv(os.Environ(), map[string]string{
-		"GO_WANT_CLI_HELPER_PROCESS": "1",
-		"GO_CLI_HELPER_ARGS_JSON":    string(encodedArgs),
+
+	cliRunMu.Lock()
+	defer cliRunMu.Unlock()
+
+	runEnv := helperEnv(os.Environ(), map[string]string{
 		// Keep integration tests deterministic when the suite itself runs in CI.
 		// Unit tests cover CI auto-detection explicitly; command-surface tests
 		// should not silently switch from pretty to JSON because CI=true leaked
@@ -143,21 +133,49 @@ func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 		"AGORA_DISABLE_CI_DETECT": "1",
 	})
 	for key, value := range options.env {
-		cmd.Env = helperEnv(cmd.Env, map[string]string{key: value})
+		runEnv = helperEnv(runEnv, map[string]string{key: value})
 	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	originalEnv := os.Environ()
+	originalDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	defer func() {
+		restoreProcessEnv(originalEnv)
+		if options.workdir != "" {
+			_ = os.Chdir(originalDir)
+		}
+		os.Stdout = originalStdout
+		os.Stderr = originalStderr
+	}()
+
+	restoreProcessEnv(runEnv)
+	if options.workdir != "" {
+		if err := os.Chdir(options.workdir); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if err := cmd.Start(); err != nil {
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
 		t.Fatal(err)
 	}
+	os.Stdout = stdoutWriter
+	os.Stderr = stderrWriter
+
+	defer func() {
+		_ = stdoutReader.Close()
+		_ = stderrReader.Close()
+	}()
 
 	var stdoutBuf bytes.Buffer
 	var stderrBuf bytes.Buffer
@@ -166,12 +184,12 @@ func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(&stdoutBuf, stdoutPipe)
+		_, _ = io.Copy(&stdoutBuf, stdoutReader)
 	}()
 
 	go func() {
 		defer wg.Done()
-		reader := bufio.NewReader(stderrPipe)
+		reader := bufio.NewReader(stderrReader)
 		for {
 			chunk, err := reader.ReadString('\n')
 			if chunk != "" {
@@ -189,23 +207,25 @@ func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 		}
 	}()
 
-	err = cmd.Wait()
+	code := executeCLI(args)
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
 	wg.Wait()
-
-	code := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			code = exitErr.ExitCode()
-		} else {
-			t.Fatal(err)
-		}
-	}
 
 	return cliResult{
 		exitCode: code,
 		stdout:   stdoutBuf.String(),
 		stderr:   stderrBuf.String(),
+	}
+}
+
+func restoreProcessEnv(env []string) {
+	os.Clearenv()
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			_ = os.Setenv(key, value)
+		}
 	}
 }
 
