@@ -279,6 +279,7 @@ type fakeCLIBFF struct {
 		Method        string
 		Pathname      string
 		Authorization string
+		UserAgent     string
 	}
 }
 
@@ -290,10 +291,12 @@ func newFakeCLIBFF() *fakeCLIBFF {
 			Method        string
 			Pathname      string
 			Authorization string
+			UserAgent     string
 		}{
 			Method:        r.Method,
 			Pathname:      r.URL.Path,
 			Authorization: r.Header.Get("Authorization"),
+			UserAgent:     r.Header.Get("User-Agent"),
 		})
 		api.mu.Unlock()
 
@@ -434,6 +437,10 @@ func TestCLIHelpSurfaceAndRemovedCommands(t *testing.T) {
 	if strings.Contains(result.stdout, "add") {
 		t.Fatalf("did not expect experimental add command in root help: %s", result.stdout)
 	}
+	upgradeCheck := runCLI(t, []string{"--upgrade-check", "--json"}, cliRunOptions{env: map[string]string{"AGORA_HOME": t.TempDir()}})
+	if upgradeCheck.exitCode != 0 || !strings.Contains(upgradeCheck.stdout, `"command":"upgrade check"`) || !strings.Contains(upgradeCheck.stdout, `"action":"upgrade-check"`) || strings.Contains(upgradeCheck.stdout, "AgoraIO-Community") {
+		t.Fatalf("unexpected upgrade check output: %+v", upgradeCheck)
+	}
 	for _, args := range [][]string{{"uap"}, {"rtm2"}, {"project", "onboard"}, {"add"}} {
 		result := runCLI(t, args, cliRunOptions{})
 		if result.exitCode != 1 || !strings.Contains(result.stderr, "unknown command") {
@@ -496,6 +503,51 @@ func TestCLIJSONErrorsUseEnvelope(t *testing.T) {
 	if unknown.exitCode != 1 || !strings.Contains(unknown.stdout, `"ok":false`) || !strings.Contains(unknown.stdout, `"command":"project onboard"`) || unknown.stderr != "" {
 		t.Fatalf("unexpected unknown-command json envelope: %+v", unknown)
 	}
+
+	unauthProject := runCLI(t, []string{"project", "list", "--json"}, cliRunOptions{
+		env: map[string]string{
+			"XDG_CONFIG_HOME": t.TempDir(),
+			"AGORA_LOG_LEVEL": "error",
+		},
+	})
+	if unauthProject.exitCode != 3 || !strings.Contains(unauthProject.stdout, `"code":"AUTH_UNAUTHENTICATED"`) || !strings.Contains(unauthProject.stdout, `"exitCode":3`) {
+		t.Fatalf("expected structured unauthenticated project error, got %+v", unauthProject)
+	}
+}
+
+func TestCLIAgenticSurfaces(t *testing.T) {
+	configHome := t.TempDir()
+	versionResult := runCLI(t, []string{"version", "--json", "--pretty"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"AGORA_LOG_LEVEL": "error",
+	}})
+	if versionResult.exitCode != 0 || !strings.Contains(versionResult.stdout, "\n  \"ok\": true") || !strings.Contains(versionResult.stdout, `"command": "version"`) {
+		t.Fatalf("unexpected version result: %+v", versionResult)
+	}
+
+	introspect := runCLI(t, []string{"introspect", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"AGORA_LOG_LEVEL": "error",
+	}})
+	if introspect.exitCode != 0 || !strings.Contains(introspect.stdout, `"command":"introspect"`) || !strings.Contains(introspect.stdout, `"features":["rtc","rtm","convoai"]`) {
+		t.Fatalf("unexpected introspect result: %+v", introspect)
+	}
+
+	telemetry := runCLI(t, []string{"telemetry", "disable", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"AGORA_LOG_LEVEL": "error",
+	}})
+	if telemetry.exitCode != 0 || !strings.Contains(telemetry.stdout, `"command":"telemetry"`) || !strings.Contains(telemetry.stdout, `"enabled":false`) {
+		t.Fatalf("unexpected telemetry result: %+v", telemetry)
+	}
+
+	upgrade := runCLI(t, []string{"upgrade", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME": configHome,
+		"AGORA_LOG_LEVEL": "error",
+	}})
+	if upgrade.exitCode != 0 || !strings.Contains(upgrade.stdout, `"command":"upgrade"`) || !strings.Contains(upgrade.stdout, `"installMethod"`) {
+		t.Fatalf("unexpected upgrade result: %+v", upgrade)
+	}
 }
 
 func TestCLIQuickstartListAndCreate(t *testing.T) {
@@ -509,14 +561,14 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 		"app/page.tsx":      "export default function Page() { return null }\n",
 	})
 	pythonRepo := createLocalGitRepo(t, map[string]string{
-		"README.md":                  "# Python Quickstart\n",
-		"server-python/.env.example": "APP_ID=\nAPP_CERTIFICATE=\nPORT=8000\n",
-		"server-python/main.py":      "print('hello')\n",
-		"web-client/package.json":    `{"name":"python-quickstart-web"}`,
+		"README.md":               "# Python Quickstart\n",
+		"server/env.example":      "APP_ID=\nAPP_CERTIFICATE=\nPORT=8000\n",
+		"server/main.py":          "print('hello')\n",
+		"web-client/package.json": `{"name":"python-quickstart-web"}`,
 	})
 	goRepo := createLocalGitRepo(t, map[string]string{
 		"README.md":               "# Go Quickstart\n",
-		"server-go/.env.example":  "APP_ID=\nAPP_CERTIFICATE=\nPORT=8080\n",
+		"server-go/env.example":   "APP_ID=\nAPP_CERTIFICATE=\nPORT=8080\n",
 		"server-go/main.go":       "package main\nfunc main() {}\n",
 		"web-client/package.json": `{"name":"go-quickstart-web"}`,
 	})
@@ -581,12 +633,12 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 	if createBound.exitCode != 0 || !strings.Contains(createBound.stdout, `"envStatus":"configured"`) || !strings.Contains(createBound.stdout, `"projectId":"prj_123456"`) {
 		t.Fatalf("unexpected bound quickstart create result: %+v", createBound)
 	}
-	localEnv, err := os.ReadFile(filepath.Join(boundTarget, "server-python", ".env.local"))
+	localEnv, err := os.ReadFile(filepath.Join(boundTarget, "server", ".env"))
 	if err != nil {
-		t.Fatalf("expected .env.local in bound scaffold: %v", err)
+		t.Fatalf("expected .env in bound scaffold: %v", err)
 	}
-	if !strings.Contains(string(localEnv), "# Project ID: prj_123456") || !strings.Contains(string(localEnv), "# Project Name: Project Alpha") || !strings.Contains(string(localEnv), "APP_ID=app_123456") || !strings.Contains(string(localEnv), "APP_CERTIFICATE=") {
-		t.Fatalf("unexpected .env.local contents: %s", string(localEnv))
+	if !strings.Contains(string(localEnv), "APP_ID=app_123456") || !strings.Contains(string(localEnv), "APP_CERTIFICATE=") || !strings.Contains(string(localEnv), "PORT=8000") || strings.Contains(string(localEnv), "# Project ID:") || strings.Contains(string(localEnv), "# Project Name:") || strings.Contains(string(localEnv), "BEGIN AGORA CLI QUICKSTART") {
+		t.Fatalf("unexpected .env contents: %s", string(localEnv))
 	}
 	metadataRaw, err := os.ReadFile(filepath.Join(boundTarget, ".agora", "project.json"))
 	if err != nil {
@@ -623,7 +675,7 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected .env.local in bound nextjs scaffold: %v", err)
 	}
-	if !strings.Contains(string(nextjsEnv), "# Project ID: prj_123456") || !strings.Contains(string(nextjsEnv), "# Project Name: Project Alpha") || !strings.Contains(string(nextjsEnv), "NEXT_PUBLIC_AGORA_APP_ID=app_123456") || !strings.Contains(string(nextjsEnv), "NEXT_AGORA_APP_CERTIFICATE=") {
+	if !strings.Contains(string(nextjsEnv), "NEXT_PUBLIC_AGORA_APP_ID=app_123456") || !strings.Contains(string(nextjsEnv), "NEXT_AGORA_APP_CERTIFICATE=") || strings.Contains(string(nextjsEnv), "# Project ID:") || strings.Contains(string(nextjsEnv), "# Project Name:") || strings.Contains(string(nextjsEnv), "BEGIN AGORA CLI QUICKSTART") {
 		t.Fatalf("unexpected nextjs .env.local contents: %s", string(nextjsEnv))
 	}
 	if strings.Contains(string(nextjsEnv), "AGORA_PROJECT_ID=") || strings.Contains(string(nextjsEnv), "AGORA_PROJECT_NAME=") {
@@ -662,7 +714,7 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 			"AGORA_API_BASE_URL": api.baseURL,
 			"AGORA_LOG_LEVEL":    "error",
 		},
-		workdir: filepath.Join(boundTarget, "server-python"),
+		workdir: filepath.Join(boundTarget, "server"),
 	})
 	if repoShow.exitCode != 0 || !strings.Contains(repoShow.stdout, `"projectId":"prj_123456"`) {
 		t.Fatalf("expected repo-local .agora binding to resolve project context, got %+v", repoShow)
@@ -681,12 +733,12 @@ func TestCLIQuickstartListAndCreate(t *testing.T) {
 	if createGoBound.exitCode != 0 || !strings.Contains(createGoBound.stdout, `"envStatus":"configured"`) {
 		t.Fatalf("unexpected bound go quickstart create result: %+v", createGoBound)
 	}
-	goEnv, err := os.ReadFile(filepath.Join(goBoundTarget, "server-go", ".env.local"))
+	goEnv, err := os.ReadFile(filepath.Join(goBoundTarget, "server-go", ".env"))
 	if err != nil {
-		t.Fatalf("expected .env.local in bound go scaffold: %v", err)
+		t.Fatalf("expected .env in bound go scaffold: %v", err)
 	}
-	if !strings.Contains(string(goEnv), "APP_ID=app_123456") || !strings.Contains(string(goEnv), "APP_CERTIFICATE=") {
-		t.Fatalf("unexpected go .env.local contents: %s", string(goEnv))
+	if !strings.Contains(string(goEnv), "APP_ID=app_123456") || !strings.Contains(string(goEnv), "APP_CERTIFICATE=") || !strings.Contains(string(goEnv), "PORT=8080") {
+		t.Fatalf("unexpected go .env contents: %s", string(goEnv))
 	}
 
 	noCertProject := buildFakeProject("No Cert", "prj_nocert", "app_nocert", "global")
@@ -739,7 +791,7 @@ func TestCLIQuickstartEnvWriteUsesTargetRepoBindingPrecedence(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(targetDir, "server-go"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(targetDir, "server-go", ".env.example"), []byte("APP_ID=\nAPP_CERTIFICATE=\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetDir, "server-go", "env.example"), []byte("APP_ID=\nAPP_CERTIFICATE=\nPORT=8080\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeLocalProjectBinding(targetDir, localProjectBinding{
@@ -747,7 +799,7 @@ func TestCLIQuickstartEnvWriteUsesTargetRepoBindingPrecedence(t *testing.T) {
 		ProjectName: alpha.Name,
 		Region:      "global",
 		Template:    "go",
-		EnvPath:     "server-go/.env.local",
+		EnvPath:     "server-go/.env",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -763,11 +815,11 @@ func TestCLIQuickstartEnvWriteUsesTargetRepoBindingPrecedence(t *testing.T) {
 	if result.exitCode != 0 || !strings.Contains(result.stdout, `"projectId":"prj_alpha"`) {
 		t.Fatalf("expected repo-local project binding precedence, got %+v", result)
 	}
-	envRaw, err := os.ReadFile(filepath.Join(targetDir, "server-go", ".env.local"))
+	envRaw, err := os.ReadFile(filepath.Join(targetDir, "server-go", ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(envRaw), "APP_ID=app_alpha") || strings.Contains(string(envRaw), "APP_ID=app_beta") {
+	if !strings.Contains(string(envRaw), "APP_ID=app_alpha") || !strings.Contains(string(envRaw), "PORT=8080") || strings.Contains(string(envRaw), "APP_ID=app_beta") {
 		t.Fatalf("expected target repo binding project app id in env, got %s", string(envRaw))
 	}
 }
@@ -778,10 +830,10 @@ func TestCLIQuickstartEnvWriteMissingBindingEvenWhenEnvExists(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(targetDir, "server-go"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(targetDir, "server-go", ".env.example"), []byte("APP_ID=\nAPP_CERTIFICATE=\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetDir, "server-go", "env.example"), []byte("APP_ID=\nAPP_CERTIFICATE=\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(targetDir, "server-go", ".env.local"), []byte("APP_ID=stale\nAPP_CERTIFICATE=stale\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetDir, "server-go", ".env"), []byte("APP_ID=stale\nAPP_CERTIFICATE=stale\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -919,11 +971,24 @@ func TestCLIProjectAndEnvAndDoctorParity(t *testing.T) {
 	envResult := runCLI(t, []string{"project", "env"}, cliRunOptions{env: map[string]string{
 		"XDG_CONFIG_HOME":    configHome,
 		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_AGENT":        "cursor-test",
 		"AGORA_LOG_LEVEL":    "error",
 		"AGORA_VERBOSE":      "0",
 	}})
 	if envResult.exitCode != 0 || !strings.Contains(envResult.stdout, "AGORA_PROJECT_ID=prj_123456") {
 		t.Fatalf("unexpected project env result: exit=%d stdout=%s stderr=%s", envResult.exitCode, envResult.stdout, envResult.stderr)
+	}
+	api.mu.Lock()
+	sawAgent := false
+	for _, request := range api.requests {
+		if strings.Contains(request.UserAgent, "agent/cursor-test") {
+			sawAgent = true
+			break
+		}
+	}
+	api.mu.Unlock()
+	if !sawAgent {
+		t.Fatalf("expected AGORA_AGENT to be propagated in User-Agent")
 	}
 
 	oldwd, _ := os.Getwd()
@@ -958,6 +1023,13 @@ func TestCLIProjectAndEnvAndDoctorParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := envelope["data"].(map[string]any)
+	if envelope["ok"] != false {
+		t.Fatalf("expected doctor failure envelope ok=false, got %s", doctorResult.stdout)
+	}
+	meta := envelope["meta"].(map[string]any)
+	if meta["exitCode"] != float64(1) {
+		t.Fatalf("expected doctor meta.exitCode=1, got %s", doctorResult.stdout)
+	}
 	if data["status"] != "not_ready" {
 		t.Fatalf("expected not_ready doctor result, got %s", doctorResult.stdout)
 	}
@@ -969,8 +1041,8 @@ func TestCLIAuthStatusExitCodeParity(t *testing.T) {
 		"AGORA_LOG_LEVEL": "error",
 		"AGORA_VERBOSE":   "0",
 	}})
-	if result.exitCode != 3 {
-		t.Fatalf("expected exit 3, got %d stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
+	if result.exitCode != 3 || !strings.Contains(result.stdout, `"ok":false`) || !strings.Contains(result.stdout, `"code":"AUTH_UNAUTHENTICATED"`) || !strings.Contains(result.stdout, `"exitCode":3`) || result.stderr != "" {
+		t.Fatalf("expected structured unauthenticated status error, got exit=%d stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
 	}
 }
 
@@ -1062,7 +1134,7 @@ func TestCLIProjectDoctorDeepDetectsWorkspaceDrift(t *testing.T) {
 		ProjectName: project.Name,
 		Region:      "global",
 		Template:    "go",
-		EnvPath:     "server-go/.env.local",
+		EnvPath:     "server-go/.env",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1075,7 +1147,7 @@ func TestCLIProjectDoctorDeepDetectsWorkspaceDrift(t *testing.T) {
 		"# END AGORA CLI QUICKSTART",
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(repoRoot, "server-go", ".env.local"), []byte(mismatched), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoRoot, "server-go", ".env"), []byte(mismatched), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1189,6 +1261,36 @@ func TestCLIProjectEnvFormatsAndWriteRules(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "apps", "web", ".env.local")); err != nil {
 		t.Fatalf("expected nested env file, got %v", err)
 	}
+	nestedEnv, err := os.ReadFile(filepath.Join(projectDir, "apps", "web", ".env.local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(nestedEnv), "AGORA_APP_ID=app_9999") || !strings.Contains(string(nestedEnv), "AGORA_APP_CERTIFICATE=") || strings.Contains(string(nestedEnv), "AGORA_PROJECT_ID=") || strings.Contains(string(nestedEnv), "# BEGIN AGORA CLI") {
+		t.Fatalf("unexpected nested env contents: %s", string(nestedEnv))
+	}
+
+	explicitDefaultPath := filepath.Join(projectDir, ".env.local")
+	if err := os.WriteFile(explicitDefaultPath, []byte("USER_VALUE=keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	explicitDefault := runCLI(t, []string{"project", "env", "write", ".env.local", "--json"}, cliRunOptions{
+		env: map[string]string{
+			"XDG_CONFIG_HOME":    configHome,
+			"AGORA_API_BASE_URL": api.baseURL,
+			"AGORA_LOG_LEVEL":    "error",
+		},
+		workdir: projectDir,
+	})
+	if explicitDefault.exitCode != 0 || !strings.Contains(explicitDefault.stdout, `"status":"appended"`) {
+		t.Fatalf("unexpected explicit .env.local write result: %+v", explicitDefault)
+	}
+	defaultEnv, err := os.ReadFile(explicitDefaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(defaultEnv), "USER_VALUE=keep") || !strings.Contains(string(defaultEnv), "AGORA_APP_ID=app_9999") || !strings.Contains(string(defaultEnv), "AGORA_APP_CERTIFICATE=") || strings.Contains(string(defaultEnv), "AGORA_PROJECT_ID=") || strings.Contains(string(defaultEnv), "# BEGIN AGORA CLI") {
+		t.Fatalf("unexpected explicit .env.local contents: %s", string(defaultEnv))
+	}
 }
 
 func TestCLIFeatureEnableAndDoctorAuthError(t *testing.T) {
@@ -1221,7 +1323,7 @@ func TestCLIFeatureEnableAndDoctorAuthError(t *testing.T) {
 		"XDG_CONFIG_HOME": t.TempDir(),
 		"AGORA_LOG_LEVEL": "error",
 	}})
-	if unauthDoctor.exitCode != 3 || !strings.Contains(unauthDoctor.stdout, `"status":"auth_error"`) || !strings.Contains(unauthDoctor.stdout, `"mode":"deep"`) {
+	if unauthDoctor.exitCode != 3 || !strings.Contains(unauthDoctor.stdout, `"ok":false`) || !strings.Contains(unauthDoctor.stdout, `"code":"AUTH_UNAUTHENTICATED"`) || !strings.Contains(unauthDoctor.stdout, `"status":"auth_error"`) || !strings.Contains(unauthDoctor.stdout, `"mode":"deep"`) {
 		t.Fatalf("unexpected unauth doctor result: %+v", unauthDoctor)
 	}
 }
