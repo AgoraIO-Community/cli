@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -223,8 +224,24 @@ func printBlock(out io.Writer, title string, rows [][2]string) {
 		fmt.Fprintln(out, title)
 	}
 	for _, row := range rows {
-		fmt.Fprintf(out, "%-*s : %s\n", width, row[0], row[1])
+		value := row[1]
+		if max := terminalValueWidth(width); max > 0 && len(value) > max {
+			value = value[:max-1] + "..."
+		}
+		fmt.Fprintf(out, "%-*s : %s\n", width, row[0], value)
 	}
+}
+
+func terminalValueWidth(labelWidth int) int {
+	columns, err := strconv.Atoi(strings.TrimSpace(os.Getenv("COLUMNS")))
+	if err != nil || columns <= 0 {
+		return 0
+	}
+	available := columns - labelWidth - len(" : ")
+	if available < 20 {
+		return 0
+	}
+	return available
 }
 
 // printDoctor prints a structured diagnostic report including per-category

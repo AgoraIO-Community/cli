@@ -37,6 +37,6 @@
   {
     "name": "yes",
     "type": "bool",
-    "usage": "accept default answers and suppress interactive prompts (equivalent to AGORA_NO_INPUT=1)"
+    "usage": "assume the default answer to confirmation prompts (equivalent to AGORA_NO_INPUT=1); never starts new interactive flows in JSON/CI/non-TTY contexts"
   }
 ]

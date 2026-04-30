@@ -77,7 +77,7 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	root.PersistentFlags().BoolVar(&a.rootQuiet, "quiet", false, "suppress success output (both pretty and JSON envelopes); rely on exit code. Errors still print on stderr.")
 	root.PersistentFlags().BoolVar(&a.rootNoColor, "no-color", false, "disable ANSI color in pretty output")
 	root.PersistentFlags().BoolVarP(&a.rootVerbose, "verbose", "v", false, "echo structured logs to stderr (equivalent to AGORA_VERBOSE=1); does not change exit codes or JSON envelopes")
-	root.PersistentFlags().BoolVarP(&a.rootYes, "yes", "y", false, "accept default answers and suppress interactive prompts (equivalent to AGORA_NO_INPUT=1)")
+	root.PersistentFlags().BoolVarP(&a.rootYes, "yes", "y", false, "assume the default answer to confirmation prompts (equivalent to AGORA_NO_INPUT=1); never starts new interactive flows in JSON/CI/non-TTY contexts")
 	root.PersistentFlags().Bool("all", false, "show the full command tree in help output")
 	root.PersistentFlags().BoolVar(&a.rootUpgradeCheck, "upgrade-check", false, "print non-interactive upgrade guidance and exit")
 	root.AddCommand(a.buildLoginCommand("login"))

@@ -2,23 +2,27 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
-// jsonProgressFor returns a progressEmitter wired to cmd.OutOrStdout() when
-// the command is producing JSON output, and nil otherwise. Callers should
-// pass the returned emitter through to long-running operations so agents
-// watching --json can see step-by-step progress events ahead of the final
-// envelope.
+// jsonProgressFor returns a progressEmitter for long-running operations.
+// JSON mode emits NDJSON on stdout for agents/scripts. Pretty TTY mode emits
+// compact status lines on stderr so humans can see that work is progressing.
 func jsonProgressFor(a *App, cmd *cobra.Command, command string) progressEmitter {
 	if a == nil || cmd == nil {
 		return nil
 	}
 	if a.resolveOutputMode(cmd) != outputJSON {
+		if isTTY(os.Stderr) {
+			return makePrettyProgressEmitter(cmd.ErrOrStderr())
+		}
 		return nil
 	}
 	return makeJSONProgressEmitter(cmd.OutOrStdout(), command)
@@ -69,6 +73,22 @@ func makeJSONProgressEmitter(out io.Writer, command string) progressEmitter {
 		defer mu.Unlock()
 		_, _ = out.Write(b)
 		_, _ = out.Write([]byte("\n"))
+	}
+}
+
+func makePrettyProgressEmitter(out io.Writer) progressEmitter {
+	if out == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	return func(_, message string, _ map[string]any) {
+		message = strings.TrimSpace(message)
+		if message == "" {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		_, _ = fmt.Fprintf(out, "- %s\n", message)
 	}
 }
 
