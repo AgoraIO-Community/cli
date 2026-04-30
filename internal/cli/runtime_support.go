@@ -131,6 +131,9 @@ func resolveConfiguredOutputMode(raw string, env map[string]string) outputMode {
 	if raw == "json" {
 		return outputJSON
 	}
+	if raw == "pretty" {
+		return outputPretty
+	}
 	if env["AGORA_OUTPUT"] == "json" {
 		return outputJSON
 	}
@@ -181,6 +184,9 @@ var sensitiveFieldPattern = regexp.MustCompile(`(?i)token|secret|password|api[_-
 var logMu sync.Mutex
 
 func appendAppLog(level, event string, env map[string]string, fields map[string]any) error {
+	if strings.TrimSpace(env["DO_NOT_TRACK"]) != "" {
+		return nil
+	}
 	if env["AGORA_LOG_ENABLED"] == "0" {
 		return nil
 	}

@@ -32,9 +32,11 @@ func detectLocalProjectRoot(start string) (string, bool, error) {
 	}
 	current := absStart
 	for {
-		if _, err := os.Stat(resolveLocalProjectFile(current)); err == nil {
+		_, err := os.Stat(resolveLocalProjectFile(current))
+		if err == nil {
 			return current, true, nil
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		}
+		if !errors.Is(err, os.ErrNotExist) {
 			return "", false, err
 		}
 		parent := filepath.Dir(current)

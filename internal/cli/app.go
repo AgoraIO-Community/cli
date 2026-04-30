@@ -15,7 +15,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.4"
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 type outputMode string
 
@@ -143,7 +147,24 @@ type jsonEnvelope struct {
 
 type envelopeError struct {
 	Message     string `json:"message"`
+	Code        string `json:"code,omitempty"`
+	HTTPStatus  int    `json:"httpStatus,omitempty"`
+	RequestID   string `json:"requestId,omitempty"`
 	LogFilePath string `json:"logFilePath,omitempty"`
+}
+
+type cliError struct {
+	Message    string
+	Code       string
+	HTTPStatus int
+	RequestID  string
+}
+
+func (e *cliError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Code
 }
 
 type App struct {
@@ -153,6 +174,10 @@ type App struct {
 	cfgState          configState
 	rootOutput        string
 	rootJSON          bool
+	rootPrettyJSON    bool
+	rootQuiet         bool
+	rootNoColor       bool
+	rootUpgradeCheck  bool
 	httpClient        *http.Client
 	projectEnvProject string
 	projectEnvFormat  string
@@ -194,17 +219,24 @@ func (a *App) Execute() error {
 		if _, ok := ExitCode(err); ok {
 			return err
 		}
+		exitCode := exitCodeForError(err)
 		logPath := resolveLogFilePathForDisplay(a.env)
 		_ = appendAppLog("error", "command.failed", a.env, map[string]any{
 			"error":       err.Error(),
 			"logFilePath": logPath,
 		})
 		if mode == outputJSON {
-			_ = emitErrorEnvelope(os.Stdout, a.guessCommandLabel(os.Args[1:]), err, 1, logPath)
+			_ = emitErrorEnvelope(os.Stdout, a.guessCommandLabel(os.Args[1:]), err, exitCode, logPath)
+			if exitCode != 1 {
+				return &exitError{code: exitCode}
+			}
 			return &renderedError{err: err}
 		}
 		fmt.Fprintln(os.Stderr, err.Error())
 		fmt.Fprintf(os.Stderr, "Detailed log: %s\n", logPath)
+		if exitCode != 1 {
+			return &exitError{code: exitCode}
+		}
 		return &renderedError{err: err}
 	}
 	return nil
@@ -224,6 +256,10 @@ func JSONRequested(args []string) bool {
 		}
 	}
 	return false
+}
+
+func JSONPrettyRequested(args []string) bool {
+	return hasFlag(args, "--pretty")
 }
 
 func EmitJSONError(command string, err error, exitCode int, logFilePath string) error {
@@ -248,6 +284,23 @@ func hasFlag(args []string, flag string) bool {
 	return false
 }
 
+func versionInfo() map[string]any {
+	return map[string]any{
+		"commit":  commit,
+		"date":    date,
+		"version": version,
+	}
+}
+
+func formattedVersion() string {
+	return fmt.Sprintf("agora %s (commit %s, built %s)", version, commit, date)
+}
+
+func jsonPrettyFromContext(cmd *cobra.Command) bool {
+	pretty, _ := cmd.Context().Value(contextKeyJSONPretty{}).(bool)
+	return pretty
+}
+
 func (a *App) guessCommandLabel(args []string) string {
 	cmd, remaining, err := a.root.Find(args)
 	base := "agora"
@@ -258,10 +311,7 @@ func (a *App) guessCommandLabel(args []string) string {
 		}
 	}
 	if cmd != nil && cmd.HasAvailableSubCommands() {
-		for _, arg := range remaining {
-			if strings.HasPrefix(arg, "-") {
-				break
-			}
+		if arg := firstNonFlag(remaining); arg != "" {
 			if base == "agora" {
 				return arg
 			}
@@ -274,13 +324,17 @@ func (a *App) guessCommandLabel(args []string) string {
 	if label := guessUnknownCommandLabel(err.Error()); label != "" {
 		return label
 	}
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			break
-		}
+	if arg := firstNonFlag(args); arg != "" {
 		return arg
 	}
 	return "agora"
+}
+
+func firstNonFlag(args []string) string {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return ""
+	}
+	return args[0]
 }
 
 func guessUnknownCommandLabel(message string) string {
@@ -338,14 +392,6 @@ func defaultConfig() appConfig {
 	}
 }
 
-func ensureAppConfig() (appConfig, error) {
-	state, err := ensureAppConfigState(snapshotEnv())
-	if err != nil {
-		return appConfig{}, err
-	}
-	return state.Config, nil
-}
-
 func mergeConfig(cfg *appConfig, raw map[string]any) {
 	if v, ok := raw["apiBaseUrl"].(string); ok && v != "" {
 		cfg.APIBaseURL = v
@@ -386,6 +432,9 @@ func (a *App) applyConfigToEnv() {
 	a.setEnvIfMissing("AGORA_BROWSER_AUTO_OPEN", boolString(a.cfg.BrowserAutoOpen))
 	a.setEnvIfMissing("AGORA_LOG_LEVEL", a.cfg.LogLevel)
 	a.setEnvIfMissing("AGORA_VERBOSE", boolString(a.cfg.Verbose))
+	if strings.TrimSpace(a.env["DO_NOT_TRACK"]) != "" {
+		a.env["AGORA_SENTRY_ENABLED"] = "0"
+	}
 }
 
 func (a *App) setEnvIfMissing(key, value string) {
@@ -573,13 +622,24 @@ func (a *App) resolveOutputMode(cmd *cobra.Command) outputMode {
 	return resolveConfiguredOutputMode(output, a.env)
 }
 
-func emitEnvelope(out io.Writer, command string, data any) error {
-	return json.NewEncoder(out).Encode(jsonEnvelope{
+func emitEnvelope(out io.Writer, command string, data any, pretty bool) error {
+	envelope := jsonEnvelope{
 		OK:      true,
 		Command: command,
 		Data:    data,
-		Meta:    map[string]any{"outputMode": "json"},
-	})
+		Meta:    map[string]any{"outputMode": "json", "exitCode": 0},
+	}
+	return encodeJSON(out, envelope, pretty)
+}
+
+func emitFailureEnvelopeWithData(out io.Writer, command string, data any, err error, exitCode int, logFilePath string, pretty bool) error {
+	return encodeJSON(out, jsonEnvelope{
+		OK:      false,
+		Command: command,
+		Data:    data,
+		Error:   envelopeErrorFrom(err, logFilePath),
+		Meta:    map[string]any{"outputMode": "json", "exitCode": exitCode},
+	}, pretty)
 }
 
 func emitErrorEnvelope(out io.Writer, command string, err error, exitCode int, logFilePath string) error {
@@ -587,22 +647,45 @@ func emitErrorEnvelope(out io.Writer, command string, err error, exitCode int, l
 		"outputMode": "json",
 		"exitCode":   exitCode,
 	}
-	return json.NewEncoder(out).Encode(jsonEnvelope{
+	envelopeErr := envelopeErrorFrom(err, logFilePath)
+	return encodeJSON(out, jsonEnvelope{
 		OK:      false,
 		Command: command,
 		Data:    nil,
-		Error: &envelopeError{
-			Message:     err.Error(),
-			LogFilePath: logFilePath,
-		},
-		Meta: meta,
-	})
+		Error:   envelopeErr,
+		Meta:    meta,
+	}, JSONPrettyRequested(os.Args[1:]))
+}
+
+func encodeJSON(out io.Writer, value any, pretty bool) error {
+	enc := json.NewEncoder(out)
+	if pretty {
+		enc.SetIndent("", "  ")
+	}
+	return enc.Encode(value)
+}
+
+func envelopeErrorFrom(err error, logFilePath string) *envelopeError {
+	out := &envelopeError{
+		Message:     err.Error(),
+		LogFilePath: logFilePath,
+	}
+	var structured *cliError
+	if errors.As(err, &structured) {
+		out.Code = structured.Code
+		out.HTTPStatus = structured.HTTPStatus
+		out.RequestID = structured.RequestID
+	}
+	return out
 }
 
 func renderResult(cmd *cobra.Command, command string, data any) error {
 	out := cmd.OutOrStdout()
 	if aMode := cmd.Context().Value(contextKeyOutputMode{}); aMode != nil && aMode.(outputMode) == outputJSON {
-		return emitEnvelope(out, command, data)
+		return emitEnvelope(out, command, data, jsonPrettyFromContext(cmd))
+	}
+	if quiet, _ := cmd.Context().Value(contextKeyQuiet{}).(bool); quiet {
+		return nil
 	}
 	switch command {
 	case "login":
@@ -642,16 +725,25 @@ func renderResult(cmd *cobra.Command, command string, data any) error {
 		if items, ok := m["items"].([]map[string]any); ok {
 			for _, item := range items {
 				fmt.Fprintf(out, "- %s: %s\n", asString(item["id"]), asString(item["title"]))
-				fmt.Fprintf(out, "  Available: %s\n", asString(item["available"]))
-				fmt.Fprintf(out, "  Runtime: %s\n", asString(item["runtime"]))
-				fmt.Fprintf(out, "  Supports Init: %s\n", asString(item["supportsInit"]))
-				fmt.Fprintf(out, "  Env: %s\n", asString(item["envDocs"]))
-				fmt.Fprintf(out, "  Repo: %s\n", asString(item["repoUrl"]))
+				if verbose, _ := m["verbose"].(bool); verbose {
+					fmt.Fprintf(out, "  Available: %s\n", asString(item["available"]))
+					fmt.Fprintf(out, "  Runtime: %s\n", asString(item["runtime"]))
+					fmt.Fprintf(out, "  Supports Init: %s\n", asString(item["supportsInit"]))
+					fmt.Fprintf(out, "  Env: %s\n", asString(item["envDocs"]))
+					fmt.Fprintf(out, "  Repo: %s\n", asString(item["repoUrl"]))
+				}
 			}
 		}
 	case "quickstart create":
 		m := data.(map[string]any)
 		printBlock(out, "Quickstart", [][2]string{{"Template", asString(m["template"])}, {"Path", asString(m["path"])}, {"Project", asString(m["projectName"])}, {"Env", asString(m["envStatus"])}, {"Metadata", asString(m["metadataPath"])}, {"Status", asString(m["status"])}})
+		if steps, ok := m["nextSteps"].([]string); ok && len(steps) > 0 {
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Next Steps")
+			for _, step := range steps {
+				fmt.Fprintf(out, "- %s\n", step)
+			}
+		}
 	case "quickstart env write":
 		m := data.(map[string]any)
 		printBlock(out, "Quickstart Env", [][2]string{{"Template", asString(m["template"])}, {"Project", asString(m["projectName"])}, {"Path", asString(m["path"])}, {"Env Path", asString(m["envPath"])}, {"Metadata", asString(m["metadataPath"])}, {"Status", asString(m["status"])}})
@@ -709,7 +801,20 @@ func renderResult(cmd *cobra.Command, command string, data any) error {
 			}
 		}
 	case "project doctor":
-		return printDoctor(out, data.(projectDoctorResult))
+		noColor, _ := cmd.Context().Value(contextKeyNoColor{}).(bool)
+		return printDoctor(out, data.(projectDoctorResult), noColor || strings.TrimSpace(os.Getenv("NO_COLOR")) != "")
+	case "version":
+		m := data.(map[string]any)
+		printBlock(out, "Version", [][2]string{{"Version", asString(m["version"])}, {"Commit", asString(m["commit"])}, {"Built", asString(m["date"])}})
+	case "telemetry":
+		m := data.(map[string]any)
+		printBlock(out, "Telemetry", [][2]string{{"Enabled", asString(m["enabled"])}, {"Config Path", asString(m["configPath"])}, {"DO_NOT_TRACK", asString(m["doNotTrack"])}})
+	case "upgrade":
+		m := data.(map[string]any)
+		printBlock(out, "Upgrade", [][2]string{{"Status", asString(m["status"])}, {"Install Method", asString(m["installMethod"])}, {"Command", asString(m["command"])}})
+	case "open":
+		m := data.(map[string]any)
+		printBlock(out, "Open", [][2]string{{"Target", asString(m["target"])}, {"URL", asString(m["url"])}, {"Status", asString(m["status"])}})
 	default:
 		encoded, _ := json.MarshalIndent(data, "", "  ")
 		fmt.Fprintf(out, "%s\n%s\n", command, string(encoded))
@@ -770,7 +875,7 @@ func printBlock(out io.Writer, title string, rows [][2]string) {
 	}
 }
 
-func printDoctor(out io.Writer, result projectDoctorResult) error {
+func printDoctor(out io.Writer, result projectDoctorResult, noColor bool) error {
 	if m, ok := result.Project.(map[string]any); ok {
 		fmt.Fprintf(out, "Checking project: %s\n", asString(m["name"]))
 		mode := "Mode: " + asString(result.Feature)
@@ -782,7 +887,7 @@ func printDoctor(out io.Writer, result projectDoctorResult) error {
 	for _, category := range result.Checks {
 		fmt.Fprintf(out, "%s\n", strings.ToUpper(category.Category[:1])+category.Category[1:])
 		for _, item := range category.Items {
-			marker := map[string]string{"pass": "✓", "warn": "!", "skipped": "-", "fail": "✗"}[item.Status]
+			marker := doctorMarker(item.Status, noColor)
 			fmt.Fprintf(out, "  %s %s\n", marker, item.Message)
 			if item.SuggestedCommand != "" {
 				fmt.Fprintf(out, "    Run: %s\n", item.SuggestedCommand)
@@ -797,11 +902,27 @@ func printDoctor(out io.Writer, result projectDoctorResult) error {
 	} else if result.Status == "warning" {
 		marker = "!"
 	}
+	if noColor {
+		marker = doctorMarker(map[bool]string{true: "pass", false: "fail"}[result.Healthy], noColor)
+		if result.Status == "warning" {
+			marker = doctorMarker("warn", noColor)
+		}
+	}
 	fmt.Fprintf(out, "  %s %s\n", marker, result.Summary)
 	return nil
 }
 
+func doctorMarker(status string, noColor bool) string {
+	if noColor {
+		return map[string]string{"pass": "OK", "warn": "!", "skipped": "-", "fail": "X"}[status]
+	}
+	return map[string]string{"pass": "✓", "warn": "!", "skipped": "-", "fail": "✗"}[status]
+}
+
 type contextKeyOutputMode struct{}
+type contextKeyJSONPretty struct{}
+type contextKeyQuiet struct{}
+type contextKeyNoColor struct{}
 type exitCodeKey struct{}
 type exitError struct{ code int }
 type renderedError struct{ err error }
@@ -814,6 +935,17 @@ func ExitCode(err error) (int, bool) {
 		return exitErr.code, true
 	}
 	return 0, false
+}
+
+func exitCodeForError(err error) int {
+	var structured *cliError
+	if errors.As(err, &structured) {
+		switch structured.Code {
+		case "AUTH_UNAUTHENTICATED", "AUTH_SESSION_EXPIRED":
+			return 3
+		}
+	}
+	return 1
 }
 
 func ErrorRendered(err error) bool {

@@ -20,6 +20,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/agora/cli-workspace/agora-cli-go/internal/cli.version={{ .Version }}
+      - -X github.com/agora/cli-workspace/agora-cli-go/internal/cli.commit={{ .ShortCommit }}
+      - -X github.com/agora/cli-workspace/agora-cli-go/internal/cli.date={{ .Date }}
 
 # Preserve existing archive naming so install scripts (and future package managers)
 # continue to work without changes.
