@@ -106,7 +106,14 @@ func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 	if options.workdir != "" {
 		cmd.Dir = options.workdir
 	}
-	cmd.Env = append(os.Environ(), "GO_WANT_CLI_HELPER_PROCESS=1")
+	cmd.Env = append(os.Environ(),
+		"GO_WANT_CLI_HELPER_PROCESS=1",
+		// Keep integration tests deterministic when the suite itself runs in CI.
+		// Unit tests cover CI auto-detection explicitly; command-surface tests
+		// should not silently switch from pretty to JSON because CI=true leaked
+		// in from the parent process.
+		"AGORA_DISABLE_CI_DETECT=1",
+	)
 	for key, value := range options.env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
