@@ -51,6 +51,7 @@ PRERELEASE=0
 QUIET=0
 VERBOSE=0
 NO_COLOR_FLAG=0
+UNINSTALL=0
 
 # ---- Exit codes ------------------------------------------------------------
 EXIT_OK=0
@@ -187,6 +188,7 @@ ${BOLD}Options:${RESET}
                           or proceed past a Homebrew/npm-managed install warning.
   --add-to-path           Append the install directory to your shell rc file.
   --dry-run               Show what would happen without making changes.
+  --uninstall             Remove the installer-managed binary and receipt.
   --no-color              Disable colored output.
   -q, --quiet             Suppress non-error output.
   -v, --verbose           Verbose debug output.
@@ -270,6 +272,10 @@ parse_args() {
         DRY_RUN=1
         shift
         ;;
+      --uninstall)
+        UNINSTALL=1
+        shift
+        ;;
       --no-color)
         NO_COLOR_FLAG=1
         shift
@@ -297,6 +303,30 @@ parse_args() {
         ;;
     esac
   done
+}
+
+# ---- Uninstall --------------------------------------------------------------
+uninstall() {
+  ensure_install_dir_default
+  binary_path="${INSTALL_DIR}/${BINARY_NAME}"
+  receipt_path="${INSTALL_DIR}/${INSTALL_RECEIPT_FILE}"
+  say_step "Uninstalling Agora CLI from ${INSTALL_DIR}"
+  if [ "$DRY_RUN" = "1" ]; then
+    say "[dry-run] Would remove ${binary_path}"
+    say "[dry-run] Would remove ${receipt_path}"
+    return 0
+  fi
+  if [ -e "$binary_path" ]; then
+    rm -f "$binary_path" 2>/dev/null || run_elevated rm -f "$binary_path"
+    say_ok "Removed ${binary_path}"
+  else
+    say "No agora binary found at ${binary_path}."
+  fi
+  if [ -e "$receipt_path" ]; then
+    rm -f "$receipt_path" 2>/dev/null || run_elevated rm -f "$receipt_path"
+    say_ok "Removed ${receipt_path}"
+  fi
+  say "Config, session, context, and logs are preserved under the Agora CLI config directory."
 }
 
 # ---- Helpers ---------------------------------------------------------------
@@ -908,6 +938,11 @@ main() {
 
   if [ "$LIST_VERSIONS" = "1" ]; then
     list_versions_and_exit
+  fi
+
+  if [ "$UNINSTALL" = "1" ]; then
+    uninstall
+    exit "$EXIT_OK"
   fi
 
   print_banner
