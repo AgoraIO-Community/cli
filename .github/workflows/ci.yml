@@ -34,7 +34,9 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test ./...
+        # -count=1 disables Go's test result cache so flaky CI nodes never
+        # surface a stale "PASS" from an earlier run on the same content.
+        run: go test -count=1 ./...
 
       - name: Check Go formatting
         if: runner.os != 'Windows'
@@ -208,6 +210,12 @@ jobs:
             if ($badExitCode -eq 0) {
               throw 'Expected checksum verification to fail with a non-zero exit code.'
             }
+            # The expected non-zero $LASTEXITCODE from install.ps1 is good news
+            # for this assertion, but GitHub Actions' pwsh wrapper appends
+            # `if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }`,
+            # which would otherwise propagate that non-zero exit and fail the
+            # whole step. Clear it now that we have what we need.
+            $global:LASTEXITCODE = 0
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Remove-Item Env:VERSION, Env:RELEASES_DOWNLOAD_BASE_URL, Env:RELEASES_PAGE_URL -ErrorAction SilentlyContinue

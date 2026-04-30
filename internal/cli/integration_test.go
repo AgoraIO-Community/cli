@@ -2,10 +2,12 @@ package cli
 
 // Shared infrastructure for the integration tests in this package.
 //
-// The CLI is exercised end-to-end by re-invoking the test binary with the
-// special TestCLIHelperProcess test selected; that helper boots a fresh
-// *App, runs Execute(), and translates the result into a process exit
-// code. runCLI spawns this helper and captures stdout / stderr / exit.
+// The CLI is exercised end-to-end by re-invoking the test binary with
+// GO_WANT_CLI_HELPER_PROCESS=1 set in the environment. TestMain detects
+// that flag, parses GO_CLI_HELPER_ARGS_JSON, boots a fresh *App, runs
+// Execute(), and translates the result into a process exit code -- all
+// without ever entering the testing framework's own argument parser.
+// runCLI spawns this helper and captures stdout / stderr / exit.
 //
 // The fakeOAuthServer and fakeCLIBFF stand in for the public OAuth flow and
 // the Agora CLI BFF, so we can assert request shapes (User-Agent, headers,
@@ -51,35 +53,23 @@ type cliRunOptions struct {
 	onStderr func(string) bool
 }
 
-func init() {
+// TestMain is the canonical Go subprocess entry point. When the test binary
+// is re-invoked with GO_WANT_CLI_HELPER_PROCESS=1 (by runCLI) we run the
+// CLI directly and bypass the test framework entirely, so cobra never sees
+// any of go test's own flags. This is the documented pattern from the Go
+// stdlib (`os/exec` tests) and is more reliable cross-platform than
+// hijacking a normal Test* function.
+func TestMain(m *testing.M) {
 	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") == "1" {
-		runCLIHelperProcess()
-	}
-}
-
-// TestCLIHelperProcess is the in-process re-entry point used by runCLI.
-// When invoked with GO_WANT_CLI_HELPER_PROCESS=1, it builds a fresh *App
-// and runs Execute() with the args passed through GO_CLI_HELPER_ARGS_JSON;
-// otherwise it returns immediately so it does not show up as a regular test.
-func TestCLIHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_CLI_HELPER_PROCESS") != "1" {
+		cliArgs := helperCLIArgs()
+		if len(cliArgs) == 0 {
+			fmt.Fprintln(os.Stderr, "agora-cli helper: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
+			os.Exit(64)
+		}
+		executeCLIHelper(cliArgs) // calls os.Exit
 		return
 	}
-	cliArgs := helperCLIArgs()
-	if len(cliArgs) == 0 {
-		fmt.Fprintln(os.Stderr, "TestCLIHelperProcess: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
-		os.Exit(64)
-	}
-	executeCLIHelper(cliArgs)
-}
-
-func runCLIHelperProcess() {
-	cliArgs := helperCLIArgs()
-	if len(cliArgs) == 0 {
-		fmt.Fprintln(os.Stderr, "TestCLIHelperProcess: missing CLI args (GO_CLI_HELPER_ARGS_JSON was empty and no -- fallback args were present)")
-		os.Exit(64)
-	}
-	executeCLIHelper(cliArgs)
+	os.Exit(m.Run())
 }
 
 func executeCLIHelper(cliArgs []string) {
@@ -114,7 +104,7 @@ func helperCLIArgs() []string {
 	if raw := os.Getenv("GO_CLI_HELPER_ARGS_JSON"); raw != "" {
 		var args []string
 		if err := json.Unmarshal([]byte(raw), &args); err != nil {
-			fmt.Fprintf(os.Stderr, "TestCLIHelperProcess: invalid GO_CLI_HELPER_ARGS_JSON: %v\n", err)
+			fmt.Fprintf(os.Stderr, "agora-cli helper: invalid GO_CLI_HELPER_ARGS_JSON: %v\n", err)
 			os.Exit(64)
 		}
 		return args
@@ -129,10 +119,10 @@ func helperCLIArgs() []string {
 }
 
 // runCLI spawns the test binary as a subprocess that reroutes through
-// TestCLIHelperProcess, captures stdout/stderr line-by-line, and returns
-// the exit code. The optional onStderr callback is invoked on every stderr
-// line so tests can react to interactive prompts (e.g. follow the OAuth
-// URL the moment we see it).
+// TestMain (when GO_WANT_CLI_HELPER_PROCESS=1 is set), captures stdout
+// and stderr line-by-line, and returns the exit code. The optional
+// onStderr callback is invoked on every stderr line so tests can react
+// to interactive prompts (e.g. follow the OAuth URL the moment we see it).
 func runCLI(t *testing.T, args []string, options cliRunOptions) cliResult {
 	t.Helper()
 	cmd := exec.Command(os.Args[0])
