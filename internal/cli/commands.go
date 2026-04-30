@@ -544,7 +544,7 @@ These commands do not clone local application code. Use "agora quickstart" for s
 }
 
 func (a *App) buildProjectCreate() *cobra.Command {
-	var region, template string
+	var region, rtmDataCenter, template string
 	var features []string
 	var dryRun bool
 	var idempotencyKey string
@@ -555,25 +555,39 @@ func (a *App) buildProjectCreate() *cobra.Command {
 		Example: example(`
   agora project create my-app
   agora project create my-agent-demo --region global --feature rtc --feature convoai
+  agora project create my-rtm-demo --rtm-data-center EU
   agora project create my-voice-agent --template voice-agent
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 				return errors.New("project name is required")
 			}
+			normalizedRTMDataCenter, err := normalizeRTMDataCenter(rtmDataCenter)
+			if err != nil {
+				return err
+			}
 			if dryRun {
-				return renderResult(cmd, "project create", map[string]any{
+				plannedFeatures := projectCreateFeatures(template, features)
+				plannedRTMDataCenter, err := rtmDataCenterForFeatures(plannedFeatures, normalizedRTMDataCenter)
+				if err != nil {
+					return err
+				}
+				result := map[string]any{
 					"action":          "create",
 					"dryRun":          true,
-					"enabledFeatures": features,
+					"enabledFeatures": plannedFeatures,
 					"idempotencyKey":  idempotencyKey,
 					"projectName":     args[0],
 					"region":          region,
 					"status":          "planned",
 					"template":        template,
-				})
+				}
+				if plannedRTMDataCenter != "" {
+					result["rtmDataCenter"] = plannedRTMDataCenter
+				}
+				return renderResult(cmd, "project create", result)
 			}
-			data, err := a.projectCreate(args[0], region, template, features, idempotencyKey)
+			data, err := a.projectCreate(args[0], region, template, features, normalizedRTMDataCenter, idempotencyKey)
 			if err != nil {
 				return err
 			}
@@ -581,8 +595,9 @@ func (a *App) buildProjectCreate() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&region, "region", "", "control plane region for the project context (global or cn)")
+	cmd.Flags().StringVar(&rtmDataCenter, "rtm-data-center", "", "RTM data center to configure when rtm is enabled (CN, NA, EU, or AP); defaults to NA")
 	cmd.Flags().StringVar(&template, "template", "", "apply a higher-level project preset such as voice-agent")
-	cmd.Flags().StringArrayVar(&features, "feature", nil, "enable one or more features after creation")
+	cmd.Flags().StringArrayVar(&features, "feature", nil, "enable one or more features after creation; defaults to rtc, rtm, and convoai; convoai also enables rtm")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "return the planned project create result without creating remote resources")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "caller-provided key for safe retries when supported by the API")
 	return cmd

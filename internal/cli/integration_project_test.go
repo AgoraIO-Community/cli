@@ -96,6 +96,83 @@ func TestCLIProjectAndEnvAndDoctorParity(t *testing.T) {
 	}
 }
 
+func TestCLIProjectCreateDefaultsToCoreFeatures(t *testing.T) {
+	configHome := t.TempDir()
+	api := newFakeCLIBFF()
+	defer api.server.Close()
+	persistSessionForIntegration(t, configHome)
+
+	dryRun := runCLI(t, []string{"project", "create", "Project Dry Run", "--dry-run", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME":    configHome,
+		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_LOG_LEVEL":    "error",
+	}})
+	if dryRun.exitCode != 0 {
+		t.Fatalf("unexpected dry-run result: %+v", dryRun)
+	}
+	for _, feature := range []string{`"rtc"`, `"rtm"`, `"convoai"`} {
+		if !strings.Contains(dryRun.stdout, feature) {
+			t.Fatalf("expected default feature %s in dry-run result: %+v", feature, dryRun)
+		}
+	}
+
+	create := runCLI(t, []string{"project", "create", "Project Gamma", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME":    configHome,
+		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_LOG_LEVEL":    "error",
+	}})
+	if create.exitCode != 0 {
+		t.Fatalf("unexpected create result: %+v", create)
+	}
+	if !strings.Contains(create.stdout, `"rtmDataCenter":"NA"`) {
+		t.Fatalf("expected default RTM data center in create result: %+v", create)
+	}
+	for _, feature := range []string{`"rtc"`, `"rtm"`, `"convoai"`} {
+		if !strings.Contains(create.stdout, feature) {
+			t.Fatalf("expected default feature %s in create result: %+v", feature, create)
+		}
+	}
+	api.mu.Lock()
+	defaultProject := api.projects["prj_0001"]
+	api.mu.Unlock()
+	if defaultProject == nil || defaultProject.FeatureState.RTMRegion != "NA" {
+		t.Fatalf("expected omitted RTM data center to default to NA, got %+v", defaultProject)
+	}
+
+	withDataCenter := runCLI(t, []string{"project", "create", "Project Delta", "--rtm-data-center", "eu", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME":    configHome,
+		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_LOG_LEVEL":    "error",
+	}})
+	if withDataCenter.exitCode != 0 || !strings.Contains(withDataCenter.stdout, `"rtmDataCenter":"EU"`) {
+		t.Fatalf("unexpected create with data center result: %+v", withDataCenter)
+	}
+	api.mu.Lock()
+	dataCenterProject := api.projects["prj_0002"]
+	api.mu.Unlock()
+	if dataCenterProject == nil || dataCenterProject.FeatureState.RTMRegion != "EU" {
+		t.Fatalf("expected RTM data center EU, got %+v", dataCenterProject)
+	}
+
+	rtcOnly := runCLI(t, []string{"project", "create", "Project RTC Only", "--feature", "rtc", "--dry-run", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME":    configHome,
+		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_LOG_LEVEL":    "error",
+	}})
+	if rtcOnly.exitCode != 0 || strings.Contains(rtcOnly.stdout, `"rtmDataCenter"`) || strings.Contains(rtcOnly.stdout, `"rtm"`) {
+		t.Fatalf("unexpected rtc-only dry-run result: %+v", rtcOnly)
+	}
+
+	convoAIOnly := runCLI(t, []string{"project", "create", "Project ConvoAI", "--feature", "convoai", "--dry-run", "--json"}, cliRunOptions{env: map[string]string{
+		"XDG_CONFIG_HOME":    configHome,
+		"AGORA_API_BASE_URL": api.baseURL,
+		"AGORA_LOG_LEVEL":    "error",
+	}})
+	if convoAIOnly.exitCode != 0 || !strings.Contains(convoAIOnly.stdout, `"convoai"`) || !strings.Contains(convoAIOnly.stdout, `"rtm"`) || !strings.Contains(convoAIOnly.stdout, `"rtmDataCenter":"NA"`) {
+		t.Fatalf("expected convoai dry-run to include rtm dependency: %+v", convoAIOnly)
+	}
+}
+
 func TestCLIProjectUseShowFeatureAndDoctorHappyPath(t *testing.T) {
 	configHome := t.TempDir()
 	api := newFakeCLIBFF()

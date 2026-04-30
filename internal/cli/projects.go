@@ -171,10 +171,12 @@ func (a *App) setRTM2Config(projectID, region string) error {
 		"interval":                "30",
 		"lockEnabled":             false,
 		"occupancy":               "50",
-		"region":                  region,
 		"storageEnabled":          false,
 		"streamChannelEnabled":    false,
 		"userSubscribeEnabled":    false,
+	}
+	if strings.TrimSpace(region) != "" {
+		body["region"] = region
 	}
 	out := map[string]any{}
 	return a.apiRequest("PUT", "/api/cli/v1/projects/"+projectID+"/rtm2-config", nil, body, &out)
@@ -239,16 +241,20 @@ func (a *App) listProjectFeatures(project projectDetail, region string) ([]featu
 	return items, nil
 }
 
-func (a *App) enableProjectFeature(feature string, project projectDetail, region string) (map[string]any, error) {
+func (a *App) enableProjectFeature(feature string, project projectDetail, region, rtmDataCenter string) (map[string]any, error) {
 	switch feature {
 	case "rtc":
 		return map[string]any{"action": "feature-enable", "feature": "rtc", "message": "rtc is included with the project", "projectId": project.ProjectID, "projectName": project.Name, "status": "included"}, nil
 	case "rtm":
-		rtmRegion := "NA"
-		if region == "cn" {
-			rtmRegion = "CN"
+		var err error
+		rtmDataCenter, err = normalizeRTMDataCenter(rtmDataCenter)
+		if err != nil {
+			return nil, err
 		}
-		if err := a.setRTM2Config(project.ProjectID, rtmRegion); err != nil {
+		if rtmDataCenter == "" {
+			rtmDataCenter = "NA"
+		}
+		if err := a.setRTM2Config(project.ProjectID, rtmDataCenter); err != nil {
 			return nil, err
 		}
 		return map[string]any{"action": "feature-enable", "feature": "rtm", "message": "rtm enabled", "projectId": project.ProjectID, "projectName": project.Name, "status": "enabled"}, nil
@@ -266,7 +272,7 @@ func (a *App) enableProjectFeature(feature string, project projectDetail, region
 	}
 }
 
-func (a *App) projectCreate(name, region, template string, features []string, idempotencyKey string) (map[string]any, error) {
+func (a *App) projectCreate(name, region, template string, features []string, rtmDataCenter string, idempotencyKey string) (map[string]any, error) {
 	ctx, err := loadContext(a.env)
 	if err != nil {
 		return nil, err
@@ -277,12 +283,14 @@ func (a *App) projectCreate(name, region, template string, features []string, id
 			region = "global"
 		}
 	}
-	project, err := a.createProject(name, idempotencyKey)
+	features = projectCreateFeatures(template, features)
+	rtmDataCenter, err = rtmDataCenterForFeatures(features, rtmDataCenter)
 	if err != nil {
 		return nil, err
 	}
-	if template == "voice-agent" {
-		features = append(features, "rtc", "rtm", "convoai")
+	project, err := a.createProject(name, idempotencyKey)
+	if err != nil {
+		return nil, err
 	}
 	seen := map[string]bool{}
 	enabled := []string{}
@@ -291,7 +299,7 @@ func (a *App) projectCreate(name, region, template string, features []string, id
 			continue
 		}
 		seen[feature] = true
-		if _, err := a.enableProjectFeature(feature, project, region); err != nil {
+		if _, err := a.enableProjectFeature(feature, project, region, rtmDataCenter); err != nil {
 			return nil, err
 		}
 		enabled = append(enabled, feature)
@@ -303,7 +311,68 @@ func (a *App) projectCreate(name, region, template string, features []string, id
 	if err := saveContext(a.env, ctx); err != nil {
 		return nil, err
 	}
-	return map[string]any{"action": "create", "appId": project.AppID, "enabledFeatures": enabled, "projectId": project.ProjectID, "projectName": project.Name, "region": region}, nil
+	result := map[string]any{"action": "create", "appId": project.AppID, "enabledFeatures": enabled, "projectId": project.ProjectID, "projectName": project.Name, "region": region}
+	if rtmDataCenter != "" {
+		result["rtmDataCenter"] = rtmDataCenter
+	}
+	return result, nil
+}
+
+func normalizeRTMDataCenter(value string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "":
+		return "", nil
+	case "CN", "NA", "EU", "AP":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("--rtm-data-center must be one of: CN, NA, EU, AP")
+	}
+}
+
+func rtmDataCenterForFeatures(features []string, value string) (string, error) {
+	normalized, err := normalizeRTMDataCenter(value)
+	if err != nil {
+		return "", err
+	}
+	if !featureListIncludes(features, "rtm") {
+		if normalized != "" {
+			return "", fmt.Errorf("--rtm-data-center can only be used when rtm is enabled")
+		}
+		return "", nil
+	}
+	if normalized == "" {
+		return "NA", nil
+	}
+	return normalized, nil
+}
+
+func normalizeProjectCreateFeatures(features []string) []string {
+	if len(features) == 0 {
+		return defaultInitFeatures()
+	}
+	return features
+}
+
+func projectCreateFeatures(template string, features []string) []string {
+	next := append([]string{}, features...)
+	if template == "voice-agent" {
+		next = append(next, "rtc", "rtm", "convoai")
+	}
+	next = normalizeProjectCreateFeatures(next)
+	if featureListIncludes(next, "convoai") && !featureListIncludes(next, "rtm") {
+		next = append([]string{"rtm"}, next...)
+	}
+	return next
+}
+
+func featureListIncludes(features []string, target string) bool {
+	for _, feature := range features {
+		if feature == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) projectUse(projectArg string) (map[string]any, error) {
@@ -747,5 +816,5 @@ func (a *App) projectFeatureEnable(feature, projectArg string) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
-	return a.enableProjectFeature(feature, target.project, target.region)
+	return a.enableProjectFeature(feature, target.project, target.region, "")
 }

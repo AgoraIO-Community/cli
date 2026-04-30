@@ -15,6 +15,11 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ## [Unreleased]
 
+### Changed
+
+- Default newly created projects to enable `rtc`, `rtm`, and `convoai`, make `convoai` imply `rtm` during project creation, and add `--rtm-data-center` for `init` / `project create` when RTM should be configured for a specific data center.
+- Refine `agora init` project selection so `--project` binds explicitly, `--new-project` creates explicitly, `"Default Project"` auto-selects by exact name, and interactive sessions without a default show existing projects plus a create-new option.
+
 ## [0.1.9] - 2026-04-30
 
 ### Changed

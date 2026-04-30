@@ -230,7 +230,7 @@ Example:
 ./agora init my-nextjs-demo --template nextjs --new-project --json
 ```
 
-By default `init` reuses an existing project — preferring one named `"Default Project"`, then the project with the latest `createdAt` value from the current results page. Pass `--new-project` to force creation. Use `--project <name|id>` to bind to a specific project.
+By default `init` reuses an existing project — preferring one named exactly `"Default Project"`. If no default exists, interactive sessions show existing projects with a create-new option and default to the most recently created project; JSON, CI, and non-TTY runs select the most recent project automatically. Pass `--new-project` to force creation. Use `--project <name|id>` to bind to a specific project.
 
 Required `data` fields:
 - `action`
@@ -251,11 +251,15 @@ Required `data` fields:
 - `metadataPath`
   Repo-local project binding file path, currently `.agora/project.json`.
 - `enabledFeatures`
-  Array of features enabled during this run. Defaults to `rtc` and `convoai` for newly created projects unless overridden with `--feature`. Empty for existing projects since the CLI did not create them in this run.
+  Array of features enabled during this run. Defaults to `rtc`, `rtm`, and `convoai` for newly created projects unless overridden with `--feature`. Empty for existing projects since the CLI did not create them in this run.
 - `nextSteps`
   Ordered list of suggested follow-up commands for the selected template.
 - `status`
   Currently `ready`.
+
+Optional fields:
+- `rtmDataCenter`
+  RTM data center configured on the new project when RTM was enabled. Defaults to `NA` when `--rtm-data-center` is omitted.
 
 Display-oriented fields:
 - `title`
@@ -277,6 +281,8 @@ Automation notes:
 Example:
 
 ```bash
+./agora project create my-agent-demo --json
+./agora project create my-agent-demo --rtm-data-center EU --json
 ./agora project create my-agent-demo --feature rtc --feature convoai --json
 ```
 
@@ -288,7 +294,11 @@ Required `data` fields (success):
 - `appId`
 - `region`
 - `enabledFeatures`
-  Array of features that were enabled on the new project (e.g. `["rtc", "convoai"]`).
+  Array of features that were enabled on the new project. Defaults to `["rtc", "rtm", "convoai"]` when no `--feature` flags are passed. Explicit `convoai` requests also include `rtm`.
+
+Optional fields:
+- `rtmDataCenter`
+  RTM data center configured when RTM was enabled. Defaults to `NA` when `--rtm-data-center` is omitted.
 
 Required `data` fields (`--dry-run`):
 - `action`
@@ -304,6 +314,10 @@ Required `data` fields (`--dry-run`):
   Project preset that would be applied (empty when not requested).
 - `idempotencyKey`
   Echoes the caller-provided `--idempotency-key` value (empty when not provided).
+
+Optional fields (`--dry-run`):
+- `rtmDataCenter`
+  Uppercased data center value (`CN`, `NA`, `EU`, or `AP`) when RTM is enabled. Defaults to `NA` when omitted.
 
 Safe branch fields:
 - `projectId` (success only)

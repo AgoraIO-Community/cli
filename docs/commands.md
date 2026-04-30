@@ -94,10 +94,11 @@ Create a project, clone a quickstart, and write env in one flow
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--dir` | `string` | — | target directory for the cloned quickstart; defaults to <name> |
-| `--feature` | `stringArray` | `[]` | enable a feature on the newly created project (repeatable); defaults to rtc and convoai |
+| `--feature` | `stringArray` | `[]` | enable a feature on the newly created project (repeatable); defaults to rtc, rtm, and convoai; convoai also enables rtm |
 | `--new-project` | `bool` | — | always create a new Agora project instead of reusing an existing one |
 | `--project` | `string` | — | existing project ID or exact project name to bind to |
 | `--region` | `string` | — | control plane region for newly created projects (global or cn) |
+| `--rtm-data-center` | `string` | — | RTM data center to configure when rtm is enabled on a newly created project (CN, NA, EU, or AP); defaults to NA |
 | `--template` | `string` | — | quickstart template ID to use |
 
 ### `agora introspect`
@@ -143,9 +144,10 @@ Create a new remote Agora project
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--dry-run` | `bool` | — | return the planned project create result without creating remote resources |
-| `--feature` | `stringArray` | `[]` | enable one or more features after creation |
+| `--feature` | `stringArray` | `[]` | enable one or more features after creation; defaults to rtc, rtm, and convoai; convoai also enables rtm |
 | `--idempotency-key` | `string` | — | caller-provided key for safe retries when supported by the API |
 | `--region` | `string` | — | control plane region for the project context (global or cn) |
+| `--rtm-data-center` | `string` | — | RTM data center to configure when rtm is enabled (CN, NA, EU, or AP); defaults to NA |
 | `--template` | `string` | — | apply a higher-level project preset such as voice-agent |
 
 ### `agora project doctor`
