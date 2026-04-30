@@ -8,6 +8,16 @@ Use this guide for:
 - agentic workflows
 - editor or IDE integrations
 
+## Contents
+
+- [General Rules](#general-rules)
+- [Project Resolution Precedence](#project-resolution-precedence)
+- [Config Isolation](#config-isolation)
+- [JSON Envelope](#json-envelope)
+- [Exit Codes](#exit-codes)
+- [Stable Result Shapes](#stable-result-shapes)
+- [Human vs Machine Output](#human-vs-machine-output)
+
 ## General Rules
 
 - Prefer `--json` for any command consumed by code, scripts, or agents.
@@ -15,9 +25,15 @@ Use this guide for:
 - Use low-level commands when a workflow must be decomposed, resumed, or partially re-run.
 - Use `agora --help --all` to inspect the full command tree (human-readable).
 - Use `agora --help --all --json` for a machine-readable command tree with all flags — the primary capability discovery mechanism for agents.
+- Use `agora introspect --json` when you need command labels, enums, and version metadata in a single stable artifact.
 - Use `agora project doctor --json` for readiness checks before continuing with automated setup.
+- Use `agora whoami --plain` for shell `if` chains that only need `authenticated` / `unauthenticated`.
 - In JSON mode, both success and failure return the same top-level envelope shape.
+- Use `--json --pretty` when a human needs to inspect JSON directly. Scripts should keep the default single-line JSON.
+- Use `--quiet` only for pretty-mode commands where the exit code is the result.
 - Interactive login prompts only appear in interactive pretty-mode runs. Automation should still authenticate up front with `agora login`; `--json`, `AGORA_OUTPUT=json`, and non-TTY runs never prompt.
+- Output mode precedence is: explicit CLI flag (`--json` or `--output`) first, `AGORA_OUTPUT` second, config file default last.
+- Set `AGORA_AGENT=<tool-name>` in automated environments so support and analytics can distinguish agent traffic in the API `User-Agent`.
 
 Primary command groups:
 - `init`
@@ -38,6 +54,18 @@ Agent guidance:
 - rely on repo-local binding when operating repeatedly inside one bound quickstart
 - keep `metadataPath` from command results if you need to validate or audit project bindings
 
+## Config Isolation
+
+The CLI creates or migrates its config directory on startup. In CI, tests, and multi-agent runs, isolate config and session state with `AGORA_HOME` so concurrent jobs do not mutate a shared developer profile:
+
+```bash
+export AGORA_HOME="$(mktemp -d)"
+agora auth status --json
+agora init my-nextjs-demo --template nextjs --project my-project --json
+```
+
+`AGORA_HOME` points directly at the Agora CLI config directory. `XDG_CONFIG_HOME` is also supported, but `AGORA_HOME` is the most explicit option for short-lived automation.
+
 ## JSON Envelope
 
 Commands that support structured output return a JSON envelope in this shape:
@@ -48,7 +76,8 @@ Commands that support structured output return a JSON envelope in this shape:
   "command": "init",
   "data": {},
   "meta": {
-    "outputMode": "json"
+    "outputMode": "json",
+    "exitCode": 0
   }
 }
 ```
@@ -59,13 +88,14 @@ Stable top-level fields:
 - `command`
   Stable command label used by the CLI for the result payload.
 - `data`
-  Command-specific result payload. This is `null` on failure.
+  Command-specific result payload. This is usually `null` on failure. `project doctor --json` keeps its diagnostic payload on readiness failures so agents can inspect blocking issues while still branching on `ok: false`.
 - `error`
   Present on failure with a stable error object.
+  Known structured failures may include `error.code`, `error.httpStatus`, and `error.requestId` in addition to `error.message`.
 - `meta.outputMode`
   Currently `json` when `--json` is used.
 - `meta.exitCode`
-  Present on failures to indicate the process exit code.
+  Process exit code for this result. Success envelopes use `0`; error envelopes use the nonzero process exit code.
 
 Agent guidance:
 - branch on `command` and `data`
@@ -100,7 +130,9 @@ Failure example:
 | 2 | Non-blocking warning | `project doctor` when only warnings found |
 | 3 | Auth or session error | `project doctor` when not authenticated; `auth status` / `whoami` when unauthenticated |
 
-In JSON mode the `meta.exitCode` field in error envelopes carries the same value.
+In JSON mode the `meta.exitCode` field carries the same value as the process exit code.
+
+Known `error.code` values are cataloged in [error-codes.md](error-codes.md).
 
 ## Stable Result Shapes
 
@@ -124,6 +156,8 @@ Required `data` fields:
   Template ID such as `nextjs`, `python`, or `go`.
 - `projectAction`
   `created` or `existing`.
+- `reusedExistingProject`
+  Boolean mirror for agents that branch on init reuse.
 - `projectId`
 - `projectName`
 - `region`
@@ -152,6 +186,15 @@ Safe branch fields:
 - `status`
 
 ### `project create`
+
+Automation notes:
+- `--dry-run` returns the planned envelope without creating remote resources.
+- `--idempotency-key <key>` is forwarded to the API body for retry-safe project creation where supported.
+
+### `quickstart create`
+
+Automation notes:
+- `--ref <branch|tag|ref>` pins the cloned quickstart source for workshops and reproducible demos.
 
 Example:
 
@@ -246,7 +289,13 @@ Required `data` fields:
 - `status`
   One of `created`, `updated`, `appended`, or `overwritten`.
 - `keysWritten`
-  Ordered list of managed keys that were written.
+  Ordered list of credential keys that were written. `project env write` writes only `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`; non-secret project metadata is stored in `.agora/project.json` for repo-bound quickstarts instead of dotenv files.
+
+Write behavior:
+- existing `.env` and `.env.local` files are preserved; missing credential keys are appended and existing credential keys are updated
+- existing legacy Agora-managed blocks are replaced with plain credential assignments
+- duplicate credential assignments are commented out after the first updated key
+- explicit non-standard env files still require `--append` or `--overwrite` when they do not already contain managed credentials
 
 Safe branch fields:
 - `path`
@@ -379,7 +428,15 @@ Required `data` fields:
 - `projectId`
 - `projectName`
 - `status`
-  Currently `created` or `updated`.
+  Currently `created`, `updated`, or `appended`.
+
+Env write behavior:
+- quickstart env files contain only the App ID and App Certificate variable names required by the template
+- Next.js uses `NEXT_PUBLIC_AGORA_APP_ID` and `NEXT_AGORA_APP_CERTIFICATE`
+- Python and Go use `APP_ID` and `APP_CERTIFICATE`
+- project metadata such as project ID, project name, region, template, and env path is stored in `.agora/project.json`
+- existing quickstart env files are preserved; missing credential keys are appended and existing credential keys are updated
+- stale Agora credential aliases for another runtime are commented out to avoid ambiguous dotenv resolution; for example, a Next.js quickstart prefers `NEXT_PUBLIC_AGORA_APP_ID` and comments out old `AGORA_APP_ID` / `APP_ID` entries when replacing them
 
 Safe branch fields:
 - `template`
@@ -442,21 +499,43 @@ Examples:
 ./agora whoami --json
 ```
 
-Required `data` fields:
+When authenticated, this command returns a success envelope with these required `data` fields:
 - `action`
   Always `status`.
 - `authenticated`
 - `status`
-  `authenticated` or `unauthenticated`.
+  `authenticated`.
 - `expiresAt`
-  May be null when unauthenticated.
 - `scope`
-  May be null when unauthenticated.
 
 Safe branch fields:
 - `authenticated`
 - `status`
 - `expiresAt`
+
+When unauthenticated, this command returns exit code `3` and an error envelope:
+
+```json
+{
+  "ok": false,
+  "command": "auth status",
+  "data": null,
+  "error": {
+    "message": "No local Agora session found. Run `agora login` first.",
+    "code": "AUTH_UNAUTHENTICATED",
+    "logFilePath": "/path/to/agora-cli.log"
+  },
+  "meta": {
+    "outputMode": "json",
+    "exitCode": 3
+  }
+}
+```
+
+Agent guidance:
+- branch on `ok` before reading `data`
+- handle `error.code == "AUTH_UNAUTHENTICATED"` as the unauthenticated state
+- run `agora login` before continuing with commands that require a session
 
 ### `auth login`
 
@@ -646,6 +725,7 @@ Returns the updated config object with the same shape as `config get`. Safe bran
 - Pretty output is optimized for humans.
 - JSON output is the supported machine-readable contract.
 - For reliable automation, do not parse help text or pretty output.
+- Use `--output pretty` to force human output when `AGORA_OUTPUT=json` is set in the environment.
 
 Recommended pattern:
 

@@ -5,8 +5,8 @@ Releases are fully automated via GoReleaser. Pushing a `v*` tag is the only manu
 ## Release
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.7
+git push origin v0.1.7
 ```
 
 The release workflow (`.github/workflows/release.yml`) then:
@@ -16,11 +16,9 @@ The release workflow (`.github/workflows/release.yml`) then:
    - Archives: `.tar.gz` (Unix), `.zip` (Windows)
    - Linux packages: `.deb`, `.rpm`, `.apk`
    - GitHub release with auto-generated changelog and checksums
-   - Homebrew tap PR (requires `HOMEBREW_TAP_TOKEN` secret + `HOMEBREW_TAP_REPO` variable)
-   - Scoop bucket update (requires `SCOOP_BUCKET_TOKEN` secret + `SCOOP_BUCKET_REPO` variable)
    - Docker images → GitHub Container Registry (`ghcr.io/{owner}/agora-cli`)
 
-2. **npm publish** job (runs after GoReleaser):
+2. **npm publish** job (currently disabled until npm package access and package names are finalized):
    - Publishes six per-platform packages (`@agoraio/cli-{os}-{arch}`)
    - Publishes the wrapper package (`agoraio-cli`)
    - Requires `NPM_TOKEN` secret
@@ -48,36 +46,30 @@ goreleaser release --snapshot --clean
 
 | Name | Type | Required for |
 |------|------|-------------|
-| `HOMEBREW_TAP_TOKEN` | secret | Homebrew tap PR |
-| `HOMEBREW_TAP_REPO` | variable | Homebrew tap PR (e.g. `org/homebrew-tap`) |
-| `SCOOP_BUCKET_TOKEN` | secret | Scoop bucket update |
-| `SCOOP_BUCKET_REPO` | variable | Scoop bucket update (e.g. `org/scoop-bucket`) |
-| `NPM_TOKEN` | secret | npm publish |
+| `NPM_TOKEN` | secret | npm publish when the job is enabled |
 | `APT_SIGNING_KEY` | secret | Signed apt repo on GitHub Pages |
 | `APT_SIGNING_KEY_ID` | variable | Signed apt repo on GitHub Pages |
 
-Homebrew and Scoop are skipped gracefully if their tokens/repos are not configured.
+Homebrew and Scoop are not part of the current GoReleaser config. Add `brews:` / `scoops:` blocks before documenting them as automated channels.
 
 ## Distribution Channels
 
 | Channel | How |
 |---------|-----|
-| Homebrew (macOS primary) | GoReleaser brews block → tap PR |
-| npm (convenience) | Custom publish-npm job in release.yml |
+| Homebrew | Coming soon; direct installer is current primary macOS path |
+| npm (convenience) | Coming soon; publish job exists but is disabled |
 | apt/deb (Debian/Ubuntu) | apt-repo.yml → GitHub Pages |
 | rpm (RHEL/Fedora) | Release artifact (.rpm via GoReleaser) |
 | apk (Alpine/Docker) | Release artifact (.apk via GoReleaser) |
-| Scoop (Windows) | GoReleaser scoops block → bucket repo |
+| Scoop (Windows) | Coming soon |
 | Docker (GHCR) | GoReleaser dockers block |
 | Shell install script | `install.sh` downloads from GitHub Releases |
 | Winget (Windows) | Manual: submit PR to microsoft/winget-pkgs |
 
 ## One-Time Setup Checklist
 
-- [ ] Create `{org}/scoop-bucket` GitHub repo; set `SCOOP_BUCKET_TOKEN` and `SCOOP_BUCKET_REPO`
 - [ ] Enable GitHub Pages on this repo (Settings → Pages → Source: `gh-pages` branch)
 - [ ] Generate GPG key for apt signing; set `APT_SIGNING_KEY` and `APT_SIGNING_KEY_ID`
-- [ ] Set `NPM_TOKEN` with publish access to `agoraio-cli` and `@agoraio/*`
+- [ ] Set `NPM_TOKEN` with publish access to `agoraio-cli` and `@agoraio/*`, then enable the npm job
+- [ ] Add Homebrew and Scoop GoReleaser blocks before announcing those channels
 - [ ] Submit first Winget manifest PR to `microsoft/winget-pkgs` after the first release
-
-See `docs/goreleaser-migration.md` for the full setup guide.

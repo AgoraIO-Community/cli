@@ -16,7 +16,7 @@ agora --help
 Install a pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --version 0.1.4
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh -s -- --version 0.1.7 --add-to-path
 agora --help
 ```
 
@@ -50,7 +50,7 @@ agora --help
 Install a pinned version and add the default install directory to your user PATH:
 
 ```powershell
-$env:VERSION = "0.1.4"
+$env:VERSION = "0.1.7"
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1))) -AddToPath
 agora --help
 ```
@@ -86,7 +86,7 @@ If another managed `agora` install is detected, the installer refuses by default
 Both direct installers support these core overrides:
 
 - `GITHUB_REPO`: install from a fork or alternate repository.
-- `VERSION`: install a specific version. Both `0.1.4` and `v0.1.4` are accepted.
+- `VERSION`: install a specific version. Both `0.1.7` and `v0.1.7` are accepted.
 - `INSTALL_DIR`: install to a custom directory.
 - `GITHUB_TOKEN` or `GH_TOKEN`: optional GitHub token to avoid API rate limits when resolving the latest release.
 
@@ -131,6 +131,31 @@ go build -o agora .
 ./agora --help
 ```
 
+## Package Channels
+
+| Channel | Status | Command |
+|---------|--------|---------|
+| Shell installer | Available | `curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh \| sh -s -- --add-to-path` |
+| Windows PowerShell | Available | `irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1 \| iex` |
+| Linux `.deb` / `.rpm` / `.apk` artifacts | Available on GitHub releases | Download the package for your distro from the release page. |
+| apt repository | Available when `apt-repo.yml` publishes the release | Use the signed repository documented by the release. |
+| Docker / GHCR | Available when release images publish | `docker run --rm ghcr.io/agoraio/agora-cli:latest --help` |
+| npm wrapper | Coming soon | `npm install -g agoraio-cli` |
+| Homebrew / Scoop | Coming soon | Use the direct installer until package-manager taps are published. |
+
+## Shell Completion
+
+Generate completion scripts with Cobra's built-in command:
+
+```bash
+agora completion bash
+agora completion zsh
+agora completion fish
+agora completion powershell
+```
+
+For one-off shell sessions, source the generated script according to your shell's completion setup.
+
 ## Troubleshooting
 
 ### GitHub API rate limits
@@ -138,12 +163,12 @@ go build -o agora .
 If latest-version resolution fails, retry with a pinned version or provide `GITHUB_TOKEN` / `GH_TOKEN`:
 
 ```bash
-GITHUB_TOKEN=your-token-here VERSION=0.1.4 sh install.sh
+GITHUB_TOKEN=your-token-here VERSION=0.1.7 sh install.sh
 ```
 
 ```powershell
 $env:GITHUB_TOKEN = "your-token-here"
-$env:VERSION = "0.1.4"
+$env:VERSION = "0.1.7"
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1)))
 ```
 

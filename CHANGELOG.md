@@ -9,17 +9,32 @@ This project follows semantic versioning for released CLI versions. The top sect
 ### Added
 
 - Add an interactive sign-in prompt for human CLI sessions when an account connection is required and no local session exists. The prompt defaults to yes on Enter and launches the existing OAuth login flow.
+- Inject version, commit, and build date at release time and surface them through `agora version` and `--version`.
+- Add `agora introspect`, `agora telemetry`, `agora upgrade` (alias `update`), and `agora open` for agent and human workflows.
+- Add global `--pretty`, `--quiet`, and `--no-color` flags, plus `agora whoami --plain` for shell-friendly auth checks.
+- Add `AGORA_AGENT` propagation into the API `User-Agent`, `project create --dry-run` / `--idempotency-key`, and `quickstart create --ref`.
 - Add this changelog so users can review notable CLI changes from version to version.
 
 ### Changed
 
+- Standardize unauthenticated failures across API-touching commands to return exit code `3` with `error.code == "AUTH_UNAUTHENTICATED"` in JSON mode.
+- Return `project doctor --json` readiness failures as `ok: false` with matching `meta.exitCode`, while preserving the diagnostic `data` payload.
+- Improve project resolution to try project-ID lookups directly and paginate name searches, surfacing ambiguous matches instead of silently picking one.
+- Prompt for an `init` template in interactive pretty-mode runs when `--template` is omitted, while keeping JSON, CI, and non-TTY runs strict.
+- Print quickstart next steps from `quickstart create` and include `reusedExistingProject` in `init` results.
+- Limit env file writes to runtime credential keys only, keeping project metadata in `.agora/project.json` and preserving existing `.env` / `.env.local` content.
 - Update installer, README, install docs, and Homebrew formula references from `AgoraIO-Community/cli` to `AgoraIO/cli`.
 - Keep automation non-interactive when auth is missing. JSON output, `AGORA_OUTPUT=json`, CI, and non-TTY runs still fail fast with the existing login-required error instead of prompting.
 - Update `agora init` project reuse to prefer a project named `Default Project`, then the project with the latest `createdAt` value from the current results page.
 
+### Fixed
+
+- Fix Cobra example formatting so the first example line keeps its indentation in command help.
+
 ### Documentation
 
 - Document the interactive-auth behavior and `init` default-project fallback in `docs/automation.md`.
+- Add `docs/error-codes.md` cataloguing stable `error.code` values and `docs/telemetry.md` covering telemetry controls and `DO_NOT_TRACK`.
 
 ## 0.1.6
 

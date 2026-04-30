@@ -12,6 +12,7 @@ This repository contains Agora CLI, the native CLI for Agora developer onboardin
 | Run all tests | `go test ./...` |
 | Inspect full command tree | `./agora --help --all` |
 | Machine-readable full command tree | `./agora --help --all --json` |
+| Agent introspection artifact | `./agora introspect --json` |
 | Machine-readable output | Add `--json` to any command |
 
 ## Source Layout
@@ -32,15 +33,12 @@ internal/cli/
   integration_test.go       Integration tests: build binary, shell out, assert JSON
 docs/
   automation.md             Stable JSON output contract — machine-consumption source of truth
-  devex-recommendations.md  Devex audit and backlog
-  parity-matrix.json        Feature parity tracking vs agora-cli-ts
-  homebrew.md               Homebrew distribution
-scripts/
-  homebrew/generate.sh      Homebrew formula generation
+  install.md                Direct installer, platform, CI, and security guidance
+brew_tap_walkthrough.md     Homebrew tap setup and verification notes
 .github/workflows/
   ci.yml                    Push/PR matrix: Ubuntu, macOS, Windows
   release.yml               Tag-driven cross-platform release
-  homebrew-tap.yml          Homebrew tap update after release
+  apt-repo.yml              Signed apt repository publishing
 ```
 
 ## Command Model
@@ -50,6 +48,10 @@ The surface is deliberately layered. Use the highest-level command that covers t
 ```
 agora
 ├── init <name>                    Recommended path: reuses existing project (or creates if none); add --new-project to force creation
+├── version                        Build version, commit, and date
+├── introspect                     Machine-readable command metadata for agents
+├── telemetry                      Telemetry status/enable/disable
+├── upgrade (alias: update)        Print package-manager-specific upgrade guidance
 ├── project
 │   ├── create <name>              Create a remote Agora project (control-plane only)
 │   ├── use <name>                 Set global project context
@@ -107,7 +109,7 @@ The full stable contract with all result shapes is in [`docs/automation.md`](doc
   "ok": true,
   "command": "init",
   "data": { ... },
-  "meta": { "outputMode": "json" }
+  "meta": { "outputMode": "json", "exitCode": 0 }
 }
 ```
 
@@ -117,8 +119,13 @@ The full stable contract with all result shapes is in [`docs/automation.md`](doc
 | `command` | yes | Stable command label |
 | `data` | yes | `null` on failure |
 | `error.message` | yes | Present on failure |
+| `error.code` | yes | Present on known structured failures |
 | `meta.outputMode` | yes | Always `"json"` |
-| `meta.exitCode` | yes | Present on failure |
+| `meta.exitCode` | yes | Process exit code for success and failure |
+
+`auth status`, `whoami`, and API-touching commands return exit code `3` plus `ok: false` with `error.code == "AUTH_UNAUTHENTICATED"` when no local session exists. Treat that as the unauthenticated state and run `agora login` before commands that require a session.
+
+Set `AGORA_AGENT=<tool-name>` in agent runs so API requests include agent context in `User-Agent`.
 
 ## Testing
 
@@ -141,15 +148,15 @@ When adding a command:
 3. Accept `--json` via `a.resolveOutputMode(cmd)`; return results through `renderResult(cmd, "command label", data)`
 4. Add the command to the README command model
 5. Add a stable JSON result shape to `docs/automation.md`
-6. Update `docs/parity-matrix.json` if it corresponds to a TypeScript command
+6. If the command overlaps the legacy TypeScript CLI, verify project resolution, JSON field names, error messages, and exit codes against the legacy behavior before changing the Go contract.
 
 ## CI and Release
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | `ci.yml` | push, PR | `go test ./...` on Ubuntu, macOS, Windows |
-| `release.yml` | `v*` tag | Builds cross-platform binaries, publishes GitHub release |
-| `homebrew-tap.yml` | after release | Updates Homebrew formula |
+| `release.yml` | `v*` tag | Builds cross-platform binaries, publishes GitHub release and package channels |
+| `apt-repo.yml` | published release | Updates the signed apt repository |
 
 Tagging `v0.1.4` triggers the release workflow automatically.
 
@@ -208,4 +215,4 @@ Homebrew remains the primary install mechanism. npm is a convenience path for de
 
 ## Parity with agora-cli-ts
 
-Feature parity is tracked in [`docs/parity-matrix.json`](docs/parity-matrix.json). When implementing or modifying a command, verify it matches the TypeScript behavior for JSON field names, project resolution precedence, error messages, and exit codes. The TS implementation is the reference for existing behavior; the Go CLI is the reference going forward.
+When implementing or modifying a command that overlaps the TypeScript CLI, verify JSON field names, project resolution precedence, error messages, and exit codes against the legacy behavior. The Go CLI is the reference going forward, so document intentional divergences in `CHANGELOG.md` and `docs/automation.md`.
