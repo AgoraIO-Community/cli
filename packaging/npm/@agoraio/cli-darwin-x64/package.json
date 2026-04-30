@@ -2,12 +2,36 @@
   "name": "@agoraio/cli-darwin-x64",
   "version": "0.0.0-dev",
   "description": "Agora CLI native binary — macOS x64",
-  "os": ["darwin"],
-  "cpu": ["x64"],
+  "homepage": "https://github.com/AgoraIO/cli#readme",
+  "bugs": {
+    "url": "https://github.com/AgoraIO/cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgoraIO/cli.git",
+    "directory": "agora-cli-go/packaging/npm/@agoraio/cli-darwin-x64"
+  },
+  "license": "MIT",
+  "author": "Agora DevRel <devrel@agora.io>",
+  "keywords": [
+    "agora",
+    "cli",
+    "agora-cli",
+    "darwin",
+    "x64",
+    "internal"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "files": [
     "bin/"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }

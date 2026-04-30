@@ -41,6 +41,69 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# ---------------------------------------------------------------------------
+# Software Bill of Materials (SBOM)
+# Generates an SPDX 2.3 JSON SBOM per archive (and per Linux package) using
+# Syft. The SBOMs ship as additional release assets so downstream auditors
+# can verify the exact dependency set inside every published artifact.
+#
+# Requires `syft` on the runner. The release workflow installs it via
+# anchore/sbom-action's bundled binary.
+# ---------------------------------------------------------------------------
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+  - id: package
+    artifacts: package
+    documents:
+      - "${artifact}.spdx.json"
+
+# ---------------------------------------------------------------------------
+# Cosign signatures (keyless / OIDC)
+# Signs every checksum file, archive SBOM, and Linux package SBOM with the
+# release workflow's GitHub Actions OIDC token. The resulting transparency
+# log entries are stored in Sigstore Rekor and verifiable with:
+#
+#   cosign verify-blob \
+#     --certificate-identity-regexp '^https://github.com/AgoraIO/cli/' \
+#     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+#     --signature <artifact>.sig --certificate <artifact>.pem <artifact>
+#
+# Requires `cosign` on the runner and `id-token: write` in release.yml
+# (already granted for npm provenance).
+# ---------------------------------------------------------------------------
+signs:
+  - id: cosign-keyless
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+
+# Same approach for the Docker images we publish to GHCR. Cosign records the
+# signature in the OCI registry alongside the image; verify with:
+#
+#   cosign verify ghcr.io/agoraio/agora-cli:<version> \
+#     --certificate-identity-regexp '^https://github.com/AgoraIO/cli/' \
+#     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+docker_signs:
+  - id: cosign-keyless
+    cmd: cosign
+    args:
+      - "sign"
+      - "--yes"
+      - "${artifact}@${digest}"
+    artifacts: manifests
+    output: true
+
 changelog:
   use: github
   sort: asc
@@ -72,7 +135,7 @@ nfpms:
     package_name: agora-cli
     vendor: Agora
     homepage: https://agora.io
-    maintainer: Agora DevEx <devex@agora.io>
+    maintainer: Agora DevRel <devrel@agora.io>
     description: |-
       Agora developer onboarding CLI.
       Manage authentication, remote projects, and quickstart workflows.

@@ -2,12 +2,36 @@
   "name": "@agoraio/cli-linux-arm64",
   "version": "0.0.0-dev",
   "description": "Agora CLI native binary — Linux arm64",
-  "os": ["linux"],
-  "cpu": ["arm64"],
+  "homepage": "https://github.com/AgoraIO/cli#readme",
+  "bugs": {
+    "url": "https://github.com/AgoraIO/cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgoraIO/cli.git",
+    "directory": "agora-cli-go/packaging/npm/@agoraio/cli-linux-arm64"
+  },
+  "license": "MIT",
+  "author": "Agora DevRel <devrel@agora.io>",
+  "keywords": [
+    "agora",
+    "cli",
+    "agora-cli",
+    "linux",
+    "arm64",
+    "internal"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "files": [
     "bin/"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }
