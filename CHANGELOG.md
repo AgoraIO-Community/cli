@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 When tagging a new release, rename the `[Unreleased]` section to the new version
-(e.g. `[0.1.7] - 2026-04-30`), add a fresh empty `[Unreleased]` heading at the top,
+(e.g. `[0.1.8] - 2026-04-30`), add a fresh empty `[Unreleased]` heading at the top,
 and update the link references at the bottom of this file.
 
 When adding a new entry, link the change to the PR or commit that introduced it
@@ -14,6 +14,14 @@ using the trailing `([#123](https://github.com/AgoraIO/cli/pull/123))` conventio
 Earlier entries pre-date this convention and only carry their version's compare link.
 
 ## [Unreleased]
+
+## [0.1.8] - 2026-04-30
+
+### Fixed
+
+- Preserve OAuth PKCE query parameters on Windows by opening browser login URLs through `rundll32 url.dll,FileProtocolHandler` instead of `cmd /c start`.
+- Accept OAuth callbacks on both IPv4 and IPv6 localhost loopback addresses so Windows `localhost` resolution does not strand successful browser sign-ins.
+- Update the release workflow output wiring to avoid self-referencing step outputs during dry-run and publish-mode setup.
 
 ## [0.1.7] - 2026-04-30
 
@@ -105,7 +113,8 @@ Earlier entries pre-date this convention and only carry their version's compare 
 - Support machine-readable JSON output for automation and agent workflows.
 - Ship automated release packaging through GoReleaser, including cross-platform archives, Linux packages, Homebrew, Scoop, npm wrapper packages, Docker images, and install scripts.
 
-[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/AgoraIO/cli/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/AgoraIO/cli/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/AgoraIO/cli/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/AgoraIO/cli/compare/v0.1.4...v0.1.5
