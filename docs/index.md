@@ -14,13 +14,13 @@ Agora CLI is the native command-line tool for Agora authentication, project mana
 
 The same docs are published as raw Markdown under predictable `/md/` URLs for agents and scripts:
 
-- [Markdown index](https://agoraio.github.io/cli/md/index.md)
-- [Markdown command reference](https://agoraio.github.io/cli/md/commands.md)
-- [Markdown automation contract](https://agoraio.github.io/cli/md/automation.md)
-- [Markdown error codes](https://agoraio.github.io/cli/md/error-codes.md)
-- [Markdown install guide](https://agoraio.github.io/cli/md/install.md)
-- [Markdown telemetry controls](https://agoraio.github.io/cli/md/telemetry.md)
-- [Markdown agent rules guide](https://agoraio.github.io/cli/md/agents/README.md)
+- [Markdown index](@@CLI_DOCS_MD_BASE_URL@@/index.md)
+- [Markdown command reference](@@CLI_DOCS_MD_BASE_URL@@/commands.md)
+- [Markdown automation contract](@@CLI_DOCS_MD_BASE_URL@@/automation.md)
+- [Markdown error codes](@@CLI_DOCS_MD_BASE_URL@@/error-codes.md)
+- [Markdown install guide](@@CLI_DOCS_MD_BASE_URL@@/install.md)
+- [Markdown telemetry controls](@@CLI_DOCS_MD_BASE_URL@@/telemetry.md)
+- [Markdown agent rules guide](@@CLI_DOCS_MD_BASE_URL@@/agents/README.md)
 
 ## Common Commands
 
