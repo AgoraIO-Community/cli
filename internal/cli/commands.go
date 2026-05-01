@@ -257,18 +257,13 @@ func (a *App) buildOpenCommand() *cobra.Command {
 		Example: example(`
   agora open --target console
   agora open --target docs
+  agora open --target docs-md
   agora open --target product-docs
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			url := "https://console.agora.io"
-			switch target {
-			case "docs":
-				url = "https://agoraio.github.io/cli/"
-			case "product-docs":
-				url = "https://docs.agora.io"
-			case "console":
-			default:
-				return fmt.Errorf("unknown open target %q. Use console, docs, or product-docs.", target)
+			url, err := resolveOpenTarget(target, a.osEnv)
+			if err != nil {
+				return err
 			}
 			status := "printed"
 			if !noBrowser && a.resolveOutputMode(cmd) != outputJSON && openBrowser(url) {
@@ -277,7 +272,7 @@ func (a *App) buildOpenCommand() *cobra.Command {
 			return renderResult(cmd, "open", map[string]any{"action": "open", "status": status, "target": target, "url": url})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", "console", "target to open: console, docs, or product-docs")
+	cmd.Flags().StringVar(&target, "target", "console", "target to open: console, docs, docs-md, or product-docs")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "print the URL without opening a browser")
 	return cmd
 }
@@ -608,7 +603,7 @@ func (a *App) buildProjectCreate() *cobra.Command {
 	cmd.Flags().StringVar(&region, "region", "", "control plane region for the project context (global or cn)")
 	cmd.Flags().StringVar(&rtmDataCenter, "rtm-data-center", "", "RTM data center to configure when rtm is enabled (CN, NA, EU, or AP); defaults to NA")
 	cmd.Flags().StringVar(&template, "template", "", "apply a higher-level project preset such as voice-agent")
-	cmd.Flags().StringArrayVar(&features, "feature", nil, "enable one or more features after creation; defaults to rtc, rtm, and convoai; convoai also enables rtm")
+	cmd.Flags().StringArrayVar(&features, "feature", nil, fmt.Sprintf("enable one or more features after creation; defaults to %s; convoai also enables rtm", featureListString()))
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "return the planned project create result without creating remote resources")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "caller-provided key for safe retries when supported by the API")
 	return cmd
@@ -617,6 +612,7 @@ func (a *App) buildProjectCreate() *cobra.Command {
 func (a *App) buildProjectList() *cobra.Command {
 	var page, pageSize int
 	var keyword string
+	var refreshCache bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List projects available to the current account",
@@ -625,18 +621,27 @@ func (a *App) buildProjectList() *cobra.Command {
   agora project list
   agora project list --keyword demo
   agora project list --page 2 --page-size 50
+  agora project list --refresh-cache
 `),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			res, err := a.listProjects(keyword, page, pageSize)
 			if err != nil {
 				return err
 			}
-			return renderResult(cmd, "project list", map[string]any{"items": res.Items, "page": res.Page, "pageSize": res.PageSize, "total": res.Total})
+			cacheRefreshed := false
+			if refreshCache {
+				if err := a.refreshProjectListCache(); err != nil {
+					return err
+				}
+				cacheRefreshed = true
+			}
+			return renderResult(cmd, "project list", map[string]any{"cacheRefreshed": cacheRefreshed, "items": res.Items, "page": res.Page, "pageSize": res.PageSize, "total": res.Total})
 		},
 	}
 	cmd.Flags().IntVar(&page, "page", 1, "page number to request")
 	cmd.Flags().IntVar(&pageSize, "page-size", 20, "number of projects per page")
 	cmd.Flags().StringVar(&keyword, "keyword", "", "filter by exact or partial project name or project ID")
+	cmd.Flags().BoolVar(&refreshCache, "refresh-cache", false, "force-refresh the unfiltered first-page project completion cache after listing")
 	return cmd
 }
 
@@ -828,7 +833,7 @@ func (a *App) buildProjectFeature() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "feature",
 		Short: "Manage project feature state",
-		Long:  "Inspect and enable product features such as rtc, rtm, and convoai for a remote Agora project.",
+		Long:  fmt.Sprintf("Inspect and enable product features such as %s for a remote Agora project.", featureListString()),
 		Example: example(`
   agora project feature list
   agora project feature status convoai
@@ -969,7 +974,7 @@ Exit codes:
 		},
 	}
 	cmd.Flags().BoolVar(&deep, "deep", false, "run deeper repo-local checks for .agora metadata and quickstart env consistency")
-	cmd.Flags().StringVar(&feature, "feature", "convoai", "target feature readiness to evaluate: rtc, rtm, or convoai")
+	cmd.Flags().StringVar(&feature, "feature", "convoai", fmt.Sprintf("target feature readiness to evaluate: %s", featureListString()))
 	return cmd
 }
 

@@ -33,7 +33,7 @@ func TestDetectInstallProvenanceUsesReceiptThenExecutablePath(t *testing.T) {
 		Tool:          "agora",
 		InstallMethod: "installer",
 		InstallPath:   installerPath,
-		Version:       "0.1.10",
+		Version:       "0.2.0",
 		InstalledAt:   "2026-04-30T11:00:00Z",
 		Source:        "install.sh",
 	}
@@ -67,7 +67,7 @@ func TestDetectInstallProvenanceFallsBackToExecutablePath(t *testing.T) {
 		{
 			name:       "homebrew detected from resolved Cellar path",
 			env:        map[string]string{"HOMEBREW_PREFIX": "/usr/local"},
-			exePath:    "/usr/local/Cellar/agora-cli/0.1.10/bin/agora",
+			exePath:    "/usr/local/Cellar/agora-cli/0.2.0/bin/agora",
 			wantMethod: "homebrew",
 		},
 		{
@@ -107,7 +107,7 @@ func TestDetectInstallProvenanceIgnoresStaleReceipt(t *testing.T) {
 		Tool:          "agora",
 		InstallMethod: "npm",
 		InstallPath:   filepath.Join(dir, "old-agora"),
-		Version:       "0.1.10",
+		Version:       "0.2.0",
 		InstalledAt:   "2026-04-30T11:00:00Z",
 		Source:        "test",
 	}
@@ -127,7 +127,7 @@ func TestDetectInstallProvenanceIgnoresStaleReceipt(t *testing.T) {
 
 func TestWriteInstallReceiptRoundTrips(t *testing.T) {
 	exePath := filepath.Join(t.TempDir(), "agora")
-	receiptPath, err := writeInstallReceipt(exePath, "v0.1.10", "agora upgrade")
+	receiptPath, err := writeInstallReceipt(exePath, "v0.2.0", "agora upgrade")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestWriteInstallReceiptRoundTrips(t *testing.T) {
 	if !receipt.validForPath(exePath) {
 		t.Fatalf("expected valid receipt for %s: %+v", exePath, receipt)
 	}
-	if receipt.Version != "0.1.10" || receipt.Source != "agora upgrade" {
+	if receipt.Version != "0.2.0" || receipt.Source != "agora upgrade" {
 		t.Fatalf("unexpected receipt contents: %+v", receipt)
 	}
 }

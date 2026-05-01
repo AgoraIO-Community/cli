@@ -194,6 +194,13 @@ func (a *App) Execute() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	a.root.SetContext(ctx)
+	// Best-effort cache hygiene on every startup. Anything older than
+	// projectListCacheMaxAge (24h) is removed so we never accumulate
+	// unbounded data under <AGORA_HOME>/cache and so a stale cache
+	// from a prior auth session can never silently shape today's CLI
+	// output. Errors are intentionally ignored: cache cleanup must
+	// never block a user's command.
+	_ = pruneStaleCaches(a.env)
 	rawOutput := readRawFlagValue(os.Args[1:], "--output")
 	if rawOutput != "json" && rawOutput != "pretty" {
 		rawOutput = ""

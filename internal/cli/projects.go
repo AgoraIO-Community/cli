@@ -13,7 +13,19 @@ import (
 func (a *App) listProjects(keyword string, page, pageSize int) (projectListResponse, error) {
 	var out projectListResponse
 	err := a.apiRequest("GET", "/api/cli/v1/projects", map[string]string{"keyword": keyword, "page": fmt.Sprint(page), "pageSize": fmt.Sprint(pageSize)}, nil, &out)
+	if err == nil && strings.TrimSpace(keyword) == "" && page <= 1 {
+		// Best-effort: persist the unfiltered first page so shell tab
+		// completion can serve project names without a network round
+		// trip on every keystroke. Failures here are non-fatal.
+		_ = saveProjectListCache(a.env, out)
+	}
 	return out, err
+}
+
+func (a *App) refreshProjectListCache() error {
+	_ = clearProjectListCache(a.env)
+	_, err := a.listProjects("", 1, projectCompletionPageSize)
+	return err
 }
 
 func (a *App) createProject(name, idempotencyKey string) (projectDetail, error) {
@@ -312,6 +324,11 @@ func (a *App) projectCreate(name, region, template string, features []string, rt
 	if err := saveContext(a.env, ctx); err != nil {
 		return nil, err
 	}
+	// The completion cache just became stale: a brand-new project
+	// won't appear in `agora project use <TAB>` until the user runs a
+	// command that re-fetches the list. Wipe it so the next completion
+	// triggers a refresh.
+	_ = clearProjectListCache(a.env)
 	result := map[string]any{"action": "create", "appId": project.AppID, "enabledFeatures": enabled, "projectId": project.ProjectID, "projectName": project.Name, "region": region}
 	if rtmDataCenter != "" {
 		result["rtmDataCenter"] = rtmDataCenter

@@ -101,6 +101,10 @@ func (a *App) logout() (map[string]any, error) {
 	if err := clearContext(a.env); err != nil {
 		return nil, err
 	}
+	// The on-disk completion cache assumes an active session; once the
+	// user is logged out it would be misleading to keep serving cached
+	// project names from a previous identity.
+	_ = clearProjectListCache(a.env)
 	return map[string]any{"action": "logout", "clearedSession": cleared, "status": "logged-out"}, nil
 }
 
@@ -377,6 +381,30 @@ const noLocalSessionErrorMessage = "No local Agora session found. Run `agora log
 
 func noLocalSessionError() error {
 	return &cliError{Message: noLocalSessionErrorMessage, Code: "AUTH_UNAUTHENTICATED"}
+}
+
+// hasPersistedNonEmptySession reports whether session.json exists, parses,
+// and contains a non-empty access token. Shell completion consults this
+// before serving the on-disk project list cache so we never show
+// API-derived project names when the user has no local session (logout
+// already clears the cache; this also covers stray cache files without a
+// matching session).
+func hasPersistedNonEmptySession(env map[string]string) bool {
+	s, err := loadSession(env)
+	if err != nil || s == nil {
+		return false
+	}
+	if strings.TrimSpace(s.AccessToken) == "" {
+		return false
+	}
+	if strings.TrimSpace(s.ExpiresAt) == "" {
+		return true
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(s.ExpiresAt))
+	if err != nil {
+		return false
+	}
+	return time.Now().Before(expiresAt)
 }
 
 func currentOutputModeFromArgs(env map[string]string) outputMode {
