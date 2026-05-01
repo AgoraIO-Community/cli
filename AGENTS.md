@@ -19,6 +19,8 @@ This repository contains Agora CLI, the native CLI for Agora developer onboardin
 
 ```
 main.go                     Entry point — wires the root command and calls Execute()
+cmd/
+  gendocs/                  Regenerates docs/commands.md from the live cobra tree
 internal/cli/
   app.go                    App struct, Execute(), output-mode resolver, env snapshot
   commands.go               Root command tree; subcommand builders for auth/config/upgrade/etc.
@@ -28,6 +30,11 @@ internal/cli/
   config.go                 appConfig type, defaults, env injection
   version.go                Build-time version vars, versionInfo, formattedVersion
   introspect.go             agora introspect + buildIntrospectionData (agent discovery contract)
+  mcp.go                    agora mcp serve — JSON-RPC MCP stdio transport + tool dispatch
+  open_targets.go           Canonical URLs for agora open (docs, Console, product docs)
+  features.go               Product feature catalog (rtc/rtm/convoai) shared by doctor, introspect, init defaults
+  cache.go                  Short-lived on-disk API caches (project list for shell completion)
+  completion.go             Dynamic shell completion helpers
   upgrade.go                agora upgrade self-update logic (download, SHA-256, atomic rename)
   progress.go               NDJSON progress event emitter for long-running JSON-mode commands
   auth.go                   login / logout / whoami / auth status
@@ -42,9 +49,15 @@ internal/cli/
 docs/
   automation.md             Stable JSON output contract — machine-consumption source of truth
   install.md                Direct installer, platform, CI, and security guidance
+  _config.yml               Jekyll / GitHub Pages configuration (human docs site)
+  _layouts/, assets/        Theme assets for Pages
+scripts/
+  preview-pages-site.sh      Local Jekyll build + URL injection (`make docs-preview`)
+  prepare-pages-site.py      Pages artifact prep (Markdown /md mirror, token expansion)
 .github/workflows/
   ci.yml                    Push/PR matrix: Ubuntu, macOS, Windows
   release.yml               Tag-driven cross-platform release
+  pages.yml                 Publish docs to GitHub Pages
   apt-repo.yml              Signed apt repository publishing
 ```
 
@@ -57,6 +70,8 @@ agora
 ├── init <name>                    Recommended path: reuses existing project (or creates if none); add --new-project to force creation
 ├── version                        Build version, commit, and date
 ├── introspect                     Machine-readable command metadata for agents
+├── open                           Open Console, CLI docs (human or /md/), or product docs
+├── mcp                            MCP stdio server for agent tool integrations
 ├── telemetry                      Telemetry status/enable/disable
 ├── upgrade (alias: update)        Print package-manager-specific upgrade guidance
 ├── project
@@ -181,7 +196,7 @@ When adding a command:
 | `release.yml` | `v*` tag | Builds cross-platform binaries, publishes GitHub release and package channels |
 | `apt-repo.yml` | published release | Updates the signed apt repository |
 
-Tagging `v0.1.4` triggers the release workflow automatically.
+Tagging `v0.2.0` (or any `v*` semver tag) triggers the release workflow automatically.
 
 ## Gotchas
 

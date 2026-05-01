@@ -27,6 +27,7 @@ so it is kept current as the canonical engineering guide.
 For end-user behavior and machine-readable contracts, see:
 
 - [`README.md`](README.md) — install, getting-started, command tree.
+- [Published docs](https://agoraio.github.io/cli/) — human-readable CLI documentation (GitHub Pages).
 - [`docs/automation.md`](docs/automation.md) — JSON envelope, agent guidance,
   output mode precedence (including CI auto-detect).
 - [`docs/error-codes.md`](docs/error-codes.md) — every stable `error.code`.
@@ -66,7 +67,13 @@ gofmt -l .                                  # must print nothing
 golangci-lint run --timeout=5m              # uses .golangci.yml
 ./scripts/check-error-codes.sh              # docs/error-codes.md drift check
 go run ./cmd/gendocs -check                 # docs/commands.md drift check
+make docs-preview                           # optional: local Jekyll site + /md preview (requires Ruby/Jekyll)
 ```
+
+Documentation work:
+
+- Run `make docs-commands` after command-tree changes; CI uses `go run ./cmd/gendocs -check`.
+- For GitHub Pages content, use `make docs-preview` (see `scripts/preview-pages-site.sh`). Published docs resolve `@@CLI_DOCS_*@@` tokens via `scripts/prepare-pages-site.py` and `docs/site.env` as documented in `docs/automation.md`.
 
 Install `golangci-lint` (matches the CI version):
 
@@ -132,9 +139,11 @@ change; prefer adding a new code and deprecating the old one over a rename.
 
 - Fill in the [pull request template](.github/pull_request_template.md).
 - Make sure `make test && make lint` pass locally.
-- Include changelog entries in the `## Unreleased` section of `CHANGELOG.md`
+- Include changelog entries under the `## [Unreleased]` section of `CHANGELOG.md`
   for user-facing changes (new commands, behavior changes, breaking changes,
-  CLI exit code changes, error code additions).
+  CLI exit code changes, error code additions). When cutting a release, move
+  those bullets into a dated `## [x.y.z] - YYYY-MM-DD` section per the note at
+  the top of `CHANGELOG.md`.
 - For UI/UX-affecting changes (pretty output, prompts, progress events,
   errors), include before/after copy-paste samples in the PR description.
 

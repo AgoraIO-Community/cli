@@ -58,6 +58,7 @@ agora init my-nextjs-demo --template nextjs
 
 ## Docs
 
+- Human docs (GitHub Pages): [https://agoraio.github.io/cli/](https://agoraio.github.io/cli/)
 - Release notes: [CHANGELOG.md](CHANGELOG.md)
 - Install options (direct installer, Windows, source): [docs/install.md](docs/install.md)
 - Full command reference (auto-generated): [docs/commands.md](docs/commands.md)
@@ -79,6 +80,9 @@ The command model is intentionally layered:
 - `config` for local CLI defaults
 - `telemetry` for telemetry preferences
 - `upgrade` / `update` for package-manager-specific upgrade guidance
+- `open` to open the Console, published CLI docs (human or `/md/` Markdown), or product docs in a browser
+- `mcp` to run the CLI as a local MCP server (`agora mcp serve`) for agent integrations
+- `completion` for shell completion scripts (standard Cobra completion)
 
 Discover the full command tree:
 
@@ -124,6 +128,14 @@ Reads and updates local CLI defaults such as output mode, log level, and browser
 ### `telemetry`
 
 Reads and updates telemetry preferences. `DO_NOT_TRACK=1` disables telemetry at runtime.
+
+### `open`
+
+Opens curated URLs: Console (`--target console`), human CLI docs on GitHub Pages (`docs`), raw Markdown tree for agents (`docs-md`), and Agora product docs (`product-docs`). Use `--no-browser` to print the resolved URL.
+
+### `mcp`
+
+Runs the CLI as an MCP stdio server so MCP-capable clients can call Agora workflows as tools. Authenticate with `agora login` on the host first; OAuth is not exposed through MCP.
 
 ### `version`
 
@@ -177,7 +189,7 @@ agora --help --all
 
 `quickstart env write` is different from `project env write`, but both keep dotenv files limited to runtime credentials.
 
-- `project env write` writes only `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`
+- `project env write` writes only App ID and App Certificate keys for the detected or `--template`-selected layout (for example `AGORA_*` for standard Node, `NEXT_PUBLIC_*` / `NEXT_*` for Next.js, or `APP_ID` / `APP_CERTIFICATE` for Python and Go). See [docs/automation.md](docs/automation.md) for the full matrix and JSON fields.
 - `quickstart env write` understands the quickstart type and writes only the App ID and App Certificate variable names the cloned repo expects
 - existing `.env` and `.env.local` files are preserved; the CLI appends missing credentials, updates existing credential keys, and comments out duplicate or stale Agora credential aliases for the selected runtime
 
@@ -207,6 +219,7 @@ The `.agora/project.json` file is created or updated by:
 - `agora init`
 - `agora quickstart create ... --project ...`
 - `agora quickstart env write ...`
+- `agora project env write ...` (fills missing `projectType` / `envPath` when applicable)
 
 It stores durable non-secret metadata:
 
@@ -214,6 +227,7 @@ It stores durable non-secret metadata:
 - `projectName`
 - `region`
 - `template`
+- `projectType` (framework hint used for env layout when present)
 - `envPath`
 
 Examples:
@@ -265,7 +279,7 @@ GitHub Actions are configured for:
 
 Release workflow behavior:
 
-- a pushed tag like `v0.1.4` triggers the release workflow
+- a pushed tag matching `v*` (for example `v0.2.0`) triggers the release workflow
 - the workflow runs tests, builds release binaries, packages them, and publishes a GitHub release automatically
 - release artifacts include checksums
 
