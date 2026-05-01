@@ -1,4 +1,4 @@
-// Package cli implements the agora-cli-go binary. The package is structured
+// Package cli implements the agora-cli binary. The package is structured
 // into focused files so each concern can be reasoned about independently:
 //
 //   - app.go       — App struct, Execute() entry point, output-mode resolver,
