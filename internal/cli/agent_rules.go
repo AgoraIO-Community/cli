@@ -139,13 +139,11 @@ func writeOrAppendAgentRuleBlock(path, body, target string) (string, error) {
 		}
 		return "updated", nil
 	}
-	separator := "\n"
+	var separator string
 	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
 		separator = "\n\n"
 	} else if len(existing) >= 2 && string(existing[len(existing)-2:]) != "\n\n" {
 		separator = "\n"
-	} else {
-		separator = ""
 	}
 	next := append([]byte{}, existing...)
 	next = append(next, []byte(separator)...)

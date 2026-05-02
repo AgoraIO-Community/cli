@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestAgentLabelFromOSEnv(t *testing.T) {
 	tests := []struct {
@@ -92,8 +95,9 @@ func asCliError(err error, target **cliError) bool {
 	if err == nil {
 		return false
 	}
-	if c, ok := err.(*cliError); ok {
-		*target = c
+	var ce *cliError
+	if errors.As(err, &ce) {
+		*target = ce
 		return true
 	}
 	return false

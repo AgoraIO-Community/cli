@@ -194,10 +194,10 @@ func (a *App) buildSkillsListCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&category, "category", "", "filter by category (scaffold, ops, agent)")
 	cmd.Flags().StringVar(&tag, "tag", "", "filter by tag (e.g. nextjs, rtc, mcp)")
-	cmd.RegisterFlagCompletionFunc("category", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("category", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeSkillCategories(toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
-	cmd.RegisterFlagCompletionFunc("tag", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("tag", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeSkillTags(toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	return cmd

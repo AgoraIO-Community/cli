@@ -89,8 +89,14 @@ type versionInformation = map[string]any
 type noopTelemetry struct{}
 
 func (noopTelemetry) Enabled() bool                              { return false }
-func (noopTelemetry) CaptureException(_ error, _ map[string]any) {}
-func (noopTelemetry) CaptureEvent(_, _ string, _ map[string]any) {}
+func (noopTelemetry) CaptureException(_ error, fields map[string]any) {
+	// Contract: redact before any sink transports fields; keep call so
+	// redactTelemetryFields stays covered until Sentry wiring lands.
+	_ = redactTelemetryFields(fields)
+}
+func (noopTelemetry) CaptureEvent(_, _ string, fields map[string]any) {
+	_ = redactTelemetryFields(fields)
+}
 func (noopTelemetry) Flush(_ time.Duration) bool                 { return true }
 
 // sentryClient is the placeholder for the Sentry-backed sink. Until the

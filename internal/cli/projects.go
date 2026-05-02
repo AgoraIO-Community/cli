@@ -549,10 +549,6 @@ func credentialLayoutFromProjectType(projectType string) projectEnvCredentialLay
 	}
 }
 
-func projectCredentialEnvValues(project projectDetail) (map[string]any, error) {
-	return projectCredentialEnvValuesForLayout(project, projectEnvLayoutStandard)
-}
-
 func projectCredentialEnvValuesForLayout(project projectDetail, layout projectEnvCredentialLayout) (map[string]any, error) {
 	if project.SignKey == nil || *project.SignKey == "" {
 		return nil, &cliError{Message: fmt.Sprintf("project %q does not have an app certificate. Enable one in Agora Console or use a different project with `agora project use`.", project.Name), Code: "PROJECT_NO_CERTIFICATE"}
