@@ -154,3 +154,4 @@ Update this file as items ship or priorities change.
 | Date | Change |
 | ---- | ------ |
 | 2026-05-01 | Initial backlog from DevEx review. |
+| 2026-05-04 | v0.2.0 release date in `CHANGELOG.md` set to Monday 2026-05-04. |
