@@ -359,5 +359,36 @@ func TestQuickstartDocsURLForRegion(t *testing.T) {
 	}
 	if got := quickstartDocsURL(tmpl, regionCN); got != tmpl.DocsURLCN {
 		t.Fatalf("cn docs url = %q, want %q", got, tmpl.DocsURLCN)
+ 	}
+}
+
+func TestQuickstartTemplatesIncludeAndroid(t *testing.T) {
+	var android quickstartTemplate
+	found := false
+	for _, tmpl := range quickstartTemplates() {
+		if tmpl.ID == "android" {
+			android = tmpl
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected android quickstart template to exist")
+	}
+	if android.RepoURL != "https://github.com/AgoraIO-Conversational-AI/agent-quickstart-android" {
+		t.Fatalf("unexpected android repo url: %q", android.RepoURL)
+	}
+	layout, ok := android.defaultEnvLayout()
+	if !ok {
+		t.Fatal("expected android env layout")
+	}
+	if layout.EnvExamplePath != "server/.env.example" || layout.EnvTargetPath != "server/.env.local" {
+		t.Fatalf("unexpected android env layout: %+v", layout)
+	}
+	if layout.AppIDKey != "AGORA_APP_ID" || layout.AppCertificateKey != "AGORA_APP_CERTIFICATE" {
+		t.Fatalf("unexpected android credential keys: %+v", layout)
+	}
+	if !android.Available || !android.SupportsInit {
+		t.Fatalf("unexpected android flags: available=%v supportsInit=%v", android.Available, android.SupportsInit)
 	}
 }
