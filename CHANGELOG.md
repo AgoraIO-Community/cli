@@ -17,6 +17,12 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ### Changed
 
+- Render branded, region-aware OAuth callback pages and keep the browser response open until token exchange and session persistence complete; reject duplicate callbacks and document the `AGORA_LOGIN_TIMEOUT_MS` default ([#52](https://github.com/AgoraIO/cli/pull/52)).
+- Align Python and Go quickstart environment wiring with the upstream repositories, while preserving compatibility with legacy environment layouts ([#53](https://github.com/AgoraIO/cli/pull/53)).
+- Make `dl.agora.io` the canonical installer URL, add installer synchronization on pushes to `main`, and retain GitHub Pages/raw GitHub as documented alternatives ([#46](https://github.com/AgoraIO/cli/pull/46)).
+- Move internal documentation out of the public Pages source and make Pages artifact preparation safer and deterministic ([#48](https://github.com/AgoraIO/cli/pull/48), [#49](https://github.com/AgoraIO/cli/pull/49)).
+- Update GitHub Actions dependencies, Go modules, and the Linux lint workflow; migrate the lint configuration to golangci-lint v2 ([#42](https://github.com/AgoraIO/cli/pull/42), [#47](https://github.com/AgoraIO/cli/pull/47), [#56](https://github.com/AgoraIO/cli/pull/56)).
+
 - Add region-aware CLI profile support for `global` and `cn`: `agora login --region` now selects the API/OAuth endpoints, Console/docs links, quickstart URLs, doctor network checks, and project context region used by later commands.
 - **BREAKING**: `agora login` without `--region` now resets the active region to `global` (and clears the session-scoped project context and project-list cache) instead of reusing the previously selected region. Pass `--region cn` to authenticate against the cn control plane.
 - **BREAKING**: Remove `--region` from `agora init` and `agora project create`; new projects now use the active login region instead of a per-command region flag.
@@ -28,6 +34,32 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 - Align new Python and Go quickstart env writing with the upstream repositories by targeting `server/.env.local` and `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE`, avoid detecting Go quickstarts as Python quickstarts, and retain compatibility with legacy quickstart env layouts.
 - Correct the Go skills and README quickstart wording from a token-service recipe to the actual Go ConvoAI voice-agent quickstart.
+
+## [0.2.7] - 2026-06-29
+
+Installer fallback and release workflow safeguards.
+
+### Added
+
+- Add S3-backed fallback downloads for `install.sh` and `install.ps1`, controlled by `AGORA_INSTALL_SOURCE`, with checksum verification and end-to-end fallback coverage ([#44](https://github.com/AgoraIO/cli/pull/44)).
+
+### Changed
+
+- Disable npm publishing until the required release credentials are available and skip the apt repository job when its GPG key is not configured ([#45](https://github.com/AgoraIO/cli/pull/45)).
+- Make installer fallback errors identify the sources actually attempted and harden Unix installer smoke tests against fixture-server timing and port conflicts.
+
+## [0.2.6] - 2026-06-29
+
+Project webhooks.
+
+### Added
+
+- Add `agora project webhook` commands for creating, listing, inspecting, updating, and deleting project webhooks, including event selection and validation.
+- Expose project webhook operations through the MCP server and document the webhook API, event fields, safe response fields, and delivery-region behavior ([#43](https://github.com/AgoraIO/cli/pull/43)).
+
+### Changed
+
+- Keep the public documentation site focused on supported user-facing docs and document webhook event, secret, and delivery-region behavior.
 
 ## [0.2.5] - 2026-06-05
 
@@ -319,7 +351,9 @@ Set `AGORA_ALLOW_UPGRADE_IN_CI=1` only when a CI job intentionally needs to muta
 - Support machine-readable JSON output for automation and agent workflows.
 - Ship automated release packaging through GoReleaser, including cross-platform archives, Linux packages, Homebrew, Scoop, npm wrapper packages, Docker images, and install scripts.
 
-[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/AgoraIO/cli/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/AgoraIO/cli/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/AgoraIO/cli/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/AgoraIO/cli/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/AgoraIO/cli/compare/v0.2.2...v0.2.3
