@@ -15,25 +15,33 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-07-28
+
+Region-aware authentication, OAuth UX, quickstart compatibility, and installer and documentation delivery improvements.
+
+### Added
+
+- Render branded, region-aware OAuth callback pages and keep the browser response open until token exchange and session persistence complete; reject duplicate callbacks ([#52](https://github.com/AgoraIO/cli/pull/52)).
+- Add installer synchronization on pushes to `main`, keeping the canonical `dl.agora.io` installer scripts current between tagged releases ([#46](https://github.com/AgoraIO/cli/pull/46)).
+
 ### Changed
 
-- Render branded, region-aware OAuth callback pages and keep the browser response open until token exchange and session persistence complete; reject duplicate callbacks and document the `AGORA_LOGIN_TIMEOUT_MS` default ([#52](https://github.com/AgoraIO/cli/pull/52)).
-- Align Python and Go quickstart environment wiring with the upstream repositories, while preserving compatibility with legacy environment layouts ([#53](https://github.com/AgoraIO/cli/pull/53)).
-- Make `dl.agora.io` the canonical installer URL, add installer synchronization on pushes to `main`, and retain GitHub Pages/raw GitHub as documented alternatives ([#46](https://github.com/AgoraIO/cli/pull/46)).
-- Move internal documentation out of the public Pages source and make Pages artifact preparation safer and deterministic ([#48](https://github.com/AgoraIO/cli/pull/48), [#49](https://github.com/AgoraIO/cli/pull/49)).
-- Update GitHub Actions dependencies, Go modules, and the Linux lint workflow; migrate the lint configuration to golangci-lint v2 ([#42](https://github.com/AgoraIO/cli/pull/42), [#47](https://github.com/AgoraIO/cli/pull/47), [#56](https://github.com/AgoraIO/cli/pull/56)).
-
-- Add region-aware CLI profile support for `global` and `cn`: `agora login --region` now selects the API/OAuth endpoints, Console/docs links, quickstart URLs, doctor network checks, and project context region used by later commands.
-- **BREAKING**: `agora login` without `--region` now resets the active region to `global` (and clears the session-scoped project context and project-list cache) instead of reusing the previously selected region. Pass `--region cn` to authenticate against the cn control plane.
-- **BREAKING**: Remove `--region` from `agora init` and `agora project create`; new projects now use the active login region instead of a per-command region flag.
-- **BREAKING**: Update public JSON shapes for region-aware profiles: `auth login --json` and `auth status --json` include `data.region`, while project list/show API models no longer expose a project `region` field because the project APIs do not return it.
-- **BREAKING**: Stop persisting CLI API/OAuth integration values in `config.json`. `apiBaseUrl`, `oauthBaseUrl`, `oauthClientId`, and `oauthScope` are now derived from the selected login region or from explicit environment variable overrides (`AGORA_API_BASE_URL`, `AGORA_OAUTH_BASE_URL`, `AGORA_OAUTH_CLIENT_ID`, `AGORA_OAUTH_SCOPE`). Existing configs auto-migrate to schema version `4` and drop those legacy keys on first load; users who previously pinned custom endpoints in `config.json` should move those values to environment variables.
-- Add `PROJECT_REGION_MISMATCH` when a repo-local `.agora/project.json` binding points to a different region than the active login region.
+- Add region-aware CLI profile support for `global` and `cn`: `agora login --region` now selects API/OAuth endpoints, Console/docs links, quickstart URLs, doctor network checks, and the project context region used by later commands ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- **BREAKING**: `agora login` without `--region` now resets the active region to `global` and clears session-scoped project context and the project-list cache. Pass `--region cn` to authenticate against the cn control plane ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- **BREAKING**: Remove `--region` from `agora init` and `agora project create`; new projects now use the active login region instead of a per-command region flag ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- **BREAKING**: Update public JSON shapes for region-aware profiles: `auth login --json` and `auth status --json` include `data.region`, while project list/show API models no longer expose a project `region` field because the project APIs do not return it ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- **BREAKING**: Stop persisting CLI API/OAuth integration values in `config.json`. `apiBaseUrl`, `oauthBaseUrl`, `oauthClientId`, and `oauthScope` are now derived from the selected login region or explicit environment variable overrides. Existing configs auto-migrate to schema version `4` and drop those legacy keys on first load; users who previously pinned custom endpoints in `config.json` should move those values to environment variables ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- Add `PROJECT_REGION_MISMATCH` when a repo-local `.agora/project.json` binding points to a different region than the active login region ([#40](https://github.com/AgoraIO/cli/pull/40)).
+- Align Python and Go quickstart environment wiring with the upstream repositories, targeting `server/.env.local` and the correct `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE` keys while preserving compatibility with legacy layouts ([#53](https://github.com/AgoraIO/cli/pull/53)).
+- Make `dl.agora.io` the canonical installer URL, with GitHub Pages/raw GitHub retained as documented alternatives ([#46](https://github.com/AgoraIO/cli/pull/46)).
+- Move internal documentation out of the public Pages source and make Pages artifact preparation safer and deterministic, including a check that generated artifacts contain no executable files ([#48](https://github.com/AgoraIO/cli/pull/48), [#49](https://github.com/AgoraIO/cli/pull/49)).
+- Update GitHub Actions dependencies and Go modules, including Go 1.26.5 and `golang.org/x/term` 0.45.0, and migrate the lint configuration and CI workflow to golangci-lint v2 ([#42](https://github.com/AgoraIO/cli/pull/42), [#47](https://github.com/AgoraIO/cli/pull/47), [#56](https://github.com/AgoraIO/cli/pull/56)).
+- Correct the documented `AGORA_LOGIN_TIMEOUT_MS` default to `120000` milliseconds to match the implementation.
 
 ### Fixed
 
-- Align new Python and Go quickstart env writing with the upstream repositories by targeting `server/.env.local` and `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE`, avoid detecting Go quickstarts as Python quickstarts, and retain compatibility with legacy quickstart env layouts.
-- Correct the Go skills and README quickstart wording from a token-service recipe to the actual Go ConvoAI voice-agent quickstart.
+- Avoid detecting Go quickstarts as Python quickstarts when resolving environment layouts, and preserve existing env files and legacy credential keys during quickstart env writes ([#53](https://github.com/AgoraIO/cli/pull/53)).
+- Correct the Go skills and README quickstart wording from a token-service recipe to the actual Go ConvoAI voice-agent quickstart ([#53](https://github.com/AgoraIO/cli/pull/53)).
 
 ## [0.2.7] - 2026-06-29
 
@@ -351,7 +359,8 @@ Set `AGORA_ALLOW_UPGRADE_IN_CI=1` only when a CI job intentionally needs to muta
 - Support machine-readable JSON output for automation and agent workflows.
 - Ship automated release packaging through GoReleaser, including cross-platform archives, Linux packages, Homebrew, Scoop, npm wrapper packages, Docker images, and install scripts.
 
-[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/AgoraIO/cli/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/AgoraIO/cli/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/AgoraIO/cli/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/AgoraIO/cli/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/AgoraIO/cli/compare/v0.2.4...v0.2.5
