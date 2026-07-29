@@ -361,8 +361,16 @@ hr {
   background: var(--muted-bg);
 }
 
+.install-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
 .install-card h2 {
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
   border: 0;
   color: var(--text);
@@ -371,6 +379,60 @@ hr {
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.install-source-toggle {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  padding: 0.2rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--code-bg);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.source-toggle-indicator {
+  position: absolute;
+  top: 0.2rem;
+  bottom: 0.2rem;
+  left: 0.2rem;
+  width: calc(50% - 0.2rem);
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 22%);
+  transition: transform 180ms ease;
+}
+
+.install-source-toggle[data-source="github"] .source-toggle-indicator {
+  transform: translateX(100%);
+}
+
+.source-toggle {
+  position: relative;
+  z-index: 1;
+  min-width: 4.6rem;
+  padding: 0.35rem 0.65rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+}
+
+.source-toggle:hover,
+.source-toggle:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.source-toggle.is-active {
+  color: var(--panel);
 }
 
 .install-command-wrapper {
@@ -430,6 +492,10 @@ hr {
 }
 
 @media (max-width: 900px) {
+  .install-card-header {
+    align-items: flex-start;
+  }
+
   .install-command-wrapper {
     display: flex;
     flex-direction: column;

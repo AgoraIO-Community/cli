@@ -6,6 +6,44 @@ title: Install Agora CLI
 
 This page lists the supported installation paths for Agora CLI and the direct installers for macOS, Linux, and Windows.
 
+## Installer sources
+
+Use the Agora CDN as the canonical installer source:
+
+```bash
+curl -fsSL https://dl.agora.io/cli/install.sh | sh
+```
+
+If the CDN is unavailable, use one of the GitHub-hosted copies:
+
+```bash
+# GitHub raw fallback
+curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh
+
+# GitHub Pages fallback
+curl -fsSL https://agoraio.github.io/cli/install.sh | sh
+```
+
+If GitHub is blocked but the Agora CDN is reachable, keep using the canonical
+script and force binary downloads from the Agora mirror:
+
+```bash
+curl -fsSL https://dl.agora.io/cli/install.sh | AGORA_INSTALL_SOURCE=s3 sh
+```
+
+For PowerShell, use the equivalent source URLs:
+
+```powershell
+# Agora
+irm https://dl.agora.io/cli/install.ps1 | iex
+
+# Github Pages
+irm https://agoraio.github.io/cli/install.ps1 | iex
+
+# GitHub raw fallback
+irm https://raw.githubusercontent.com/AgoraIO/cli/main/install.ps1 | iex
+```
+
 ## Enterprise / locked-down environments
 
 If your organization blocks pipe-to-shell installers, use one of these supported paths:
@@ -92,7 +130,12 @@ Install only the binary (no shell modifications):
 
 The Windows installer installs `agora.exe` into `%LOCALAPPDATA%\Programs\Agora\bin` by default.
 
-If your PowerShell execution policy blocks inline scripts, download `install.ps1` first and run it with `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
+If your PowerShell execution policy blocks inline scripts, download the installer first and run it from disk:
+
+```powershell
+irm https://dl.agora.io/cli/install.ps1 -OutFile .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
 
 ### Direct GitHub fallback
 

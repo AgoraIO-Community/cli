@@ -8,7 +8,14 @@ title: Agora CLI Docs
 </div>
 
 <div class="install-card">
-  <h2>Install</h2>
+  <div class="install-card-header">
+    <h2>Install</h2>
+    <div class="install-source-toggle" role="group" aria-label="Installer source" data-source="agora">
+      <span class="source-toggle-indicator" aria-hidden="true"></span>
+      <button type="button" class="source-toggle is-active" data-source="agora" aria-pressed="true">Agora</button>
+      <button type="button" class="source-toggle" data-source="github" aria-pressed="false">Github</button>
+    </div>
+  </div>
   <div class="install-command-wrapper">
     <button class="copy-button" onclick="copyInstallCommand()" aria-label="Copy install command" title="Copy to clipboard">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -22,6 +29,21 @@ title: Agora CLI Docs
 </div>
 
 <script>
+const installCommands = {
+  agora: 'curl -fsSL @@CLI_INSTALL_SH_URL@@ | sh',
+  github: 'curl -fsSL @@CLI_INSTALL_SH_GITHUB_URL@@ | sh'
+};
+
+function setInstallSource(source) {
+  document.getElementById('install-command').textContent = installCommands[source];
+  document.querySelector('.install-source-toggle').dataset.source = source;
+  document.querySelectorAll('.source-toggle').forEach((button) => {
+    const isActive = button.dataset.source === source;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
+
 function copyInstallCommand() {
   const command = document.getElementById('install-command').textContent;
   const button = document.querySelector('.copy-button');
@@ -38,6 +60,10 @@ function copyInstallCommand() {
     console.error('Failed to copy:', err);
   });
 }
+
+document.querySelectorAll('.source-toggle').forEach((button) => {
+  button.addEventListener('click', () => setInstallSource(button.dataset.source));
+});
 </script>
 
 <div class="card-grid">
@@ -82,4 +108,3 @@ agora project doctor --json
   <a href="@@CLI_DOCS_MD_BASE_URL@@/install.md" class="quick-link">Install</a>
   <a href="@@CLI_DOCS_MD_BASE_URL@@/telemetry.md" class="quick-link">Telemetry</a>
 </div>
-
