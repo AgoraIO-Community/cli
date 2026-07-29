@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/AgoraIO/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/AgoraIO/cli/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AgoraIO/cli?label=release)](https://github.com/AgoraIO/cli/releases)
-[![npm](https://img.shields.io/npm/v/agoraio-cli?label=npm)](https://www.npmjs.com/package/agoraio-cli)
 [![License](https://img.shields.io/github/license/AgoraIO/cli)](LICENSE)
 
 Native Agora CLI for authentication, project management, quickstart setup, and developer onboarding. Use it to go from an Agora account to a runnable app with one command.
@@ -13,7 +12,6 @@ Native Agora CLI for authentication, project management, quickstart setup, and d
 
 - macOS 12+, Linux (glibc 2.31+ or musl), or Windows 10+ for the prebuilt binaries.
 - `git` on `PATH` for `agora init` and `agora quickstart create` (they shell out to `git clone`).
-- For the npm install path, Node.js 18 or newer.
 - For the source build, the Go toolchain pinned in [`go.mod`](go.mod).
 
 ### Install the CLI
@@ -45,14 +43,14 @@ curl -fsSL https://agoraio.github.io/cli/install.sh | sh
 curl -fsSL https://raw.githubusercontent.com/AgoraIO/cli/main/install.sh | sh
 ```
 
-Locked-down environments that block `curl | sh` can use npm, download a release archive from GitHub, or mirror the binary internally. Every release includes `checksums.txt`, a Cosign keyless signature, and an SBOM; see [docs/install.md](docs/install.md#enterprise--locked-down-environments) for manual tarball, checksum, and Cosign verification steps.
+Locked-down environments that block `curl | sh` can download a release archive from GitHub or mirror the binary internally. Every release includes `checksums.txt`, a Cosign keyless signature, and an SBOM; see [docs/install.md](docs/install.md#enterprise--locked-down-environments) for manual tarball, checksum, and Cosign verification steps. The npm distribution is currently paused; the package on npm may be stale and should not be used.
 
 Notes:
 
 - The shell installer supports macOS, Linux, and Windows POSIX shells such as Git Bash. Use `install.ps1` for native PowerShell installs on Windows.
 - **Shell setup is auto-on**: the installer wires the install directory onto your `PATH` (when needed) and writes a shell completion script for the detected shell (bash, zsh, fish, or PowerShell). Pass `--no-path`, `--no-completion`, or the umbrella `--skip-shell` (PowerShell: `-NoPath` / `-NoCompletion` / `-SkipShell`) to opt out granularly.
 - Installer help is always available with `curl -fsSL https://dl.agora.io/cli/install.sh | sh -s -- --help`.
-- Pinned versions, dry runs, custom install directories, npm details, and source builds are documented in [docs/install.md](docs/install.md).
+- Pinned versions, dry runs, custom install directories, and source builds are documented in [docs/install.md](docs/install.md).
 - Release artifacts and checksums: [GitHub Releases](https://github.com/AgoraIO/cli/releases). Vulnerability disclosures: [SECURITY.md](SECURITY.md).
 
 ### Restricted networks (GitHub blocked)

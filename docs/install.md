@@ -11,9 +11,6 @@ This page lists the supported installation paths for Agora CLI and the direct in
 If your organization blocks pipe-to-shell installers, use one of these supported paths:
 
 ```bash
-# npm package with provenance metadata
-npm install -g agoraio-cli
-
 # Manual release archive download
 curl -fsSLO https://github.com/AgoraIO/cli/releases/download/vX.Y.Z/agora-cli_vX.Y.Z_linux_amd64.tar.gz
 curl -fsSLO https://github.com/AgoraIO/cli/releases/download/vX.Y.Z/checksums.txt
@@ -21,6 +18,8 @@ sha256sum -c checksums.txt --ignore-missing
 ```
 
 Manual installs should verify SHA-256 at minimum; Cosign and SBOM verification are documented in [Security](#security). Enterprises may mirror the verified archive internally as long as the binary name remains `agora` / `agora.exe` on `PATH`.
+
+The npm distribution is currently paused. The package currently published on npm may be stale and is not a supported installation path; use the standalone installer or a release archive instead.
 
 ## Direct Installers
 
@@ -259,7 +258,7 @@ Both installers refuse to overwrite an `agora` binary that came from a package m
 | Manager                | Detected by                                                  | Recommended upgrade         |
 | ---------------------- | ------------------------------------------------------------ | --------------------------- |
 | Homebrew (Unix)        | binary path under `brew --prefix`                            | `brew upgrade agora`        |
-| npm (Unix and Windows) | binary path under `npm prefix -g`                            | `npm update -g agoraio-cli` |
+| npm (Unix and Windows) | binary path under `npm prefix -g`                            | `npm uninstall -g agoraio-cli` or re-run the installer with `--replace-npm` |
 | Scoop (Windows)        | `$env:SCOOP` or path contains `\scoop\shims\`                | `scoop update agora`        |
 | Chocolatey (Windows)   | `$env:ChocolateyInstall` or path contains `\chocolatey\bin\` | `choco upgrade agora`       |
 | winget (Windows)       | path contains `\WinGet\Packages\`                            | `winget upgrade Agora.Cli`  |
@@ -309,29 +308,12 @@ go build -o agora .
 | Linux `.deb` / `.rpm` / `.apk` artifacts | Available on GitHub releases                        | Download the package for your distro from the release page.                                          |
 | apt repository                           | Available when `apt-repo.yml` publishes the release | Use the signed repository documented by the release.                                                 |
 | Docker / GHCR                            | Available when release images publish               | `docker run --rm ghcr.io/agoraio/agora-cli:latest --help`                                            |
-| npm wrapper                              | Available                                           | `npm install -g agoraio-cli`                                                                         |
+| npm wrapper                              | Paused; published package may be stale             | Use the shell installer or download a release archive.                                               |
 | Homebrew / Scoop                         | Coming soon                                         | Use the direct installer until package-manager taps are published.                                   |
 
-### npm wrapper
+### npm distribution
 
-The `agoraio-cli` npm package is a thin Node.js shim that resolves the right native binary for your platform via `optionalDependencies`. The platform binary itself is the same artifact published to GitHub Releases. The wrapper package is published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) so consumers can verify it was built from this repository's release workflow.
-
-```bash
-# Install globally
-npm install -g agoraio-cli
-agora --help
-
-# Or run without a global install
-npx agoraio-cli --help
-
-# Pin a specific version
-npm install -g agoraio-cli@0.2.5
-
-# Update to the latest published version
-npm update -g agoraio-cli
-```
-
-Supported platforms: `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-x64`, `win32-arm64`. Node 18 or newer is required. If you see "platform package not installed," run `npm install -g agoraio-cli` again.
+The npm distribution is paused while its release credentials and published package versions are brought back into alignment. Do not install `agoraio-cli` from npm until this documentation is updated to announce that the channel is available again. If an older npm-managed installation is already present, migrate to the standalone installer with `--replace-npm` or remove it with `npm uninstall -g agoraio-cli` first.
 
 ## Shell Completion
 

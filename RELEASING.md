@@ -18,7 +18,8 @@ The release workflow (`.github/workflows/release.yml`) then:
    - GitHub release with auto-generated changelog and checksums
    - Docker images → GitHub Container Registry (`ghcr.io/{owner}/agora-cli`)
 
-2. **npm publish** job (active):
+2. **npm publish** job (currently disabled):
+   - The npm channel is paused because the published package is stale and the release credentials are not ready; do not advertise npm installation until this job is explicitly re-enabled and a successful release is verified
    - Downloads the release archives, verifies them against `checksums.txt` (SHA-256), and refuses to publish on mismatch
    - Stages the per-platform binary into each unscoped `agoraio-cli-{os}-{arch}` package
    - Stamps the tag version into all package.json files (wrapper + 6 platform packages)
@@ -51,15 +52,15 @@ go build -o agora .
 goreleaser release --snapshot --clean
 ```
 
-## Manual npm dry-run (no tag required)
+## npm release readiness (currently paused)
 
-The release workflow exposes a `workflow_dispatch` trigger that runs the npm publish job in `--dry-run` mode against a synthetic version tag. Use this to validate npm packaging changes (metadata, scripts, provenance permissions) without minting a real GitHub release:
+The npm publish job is currently disabled. Before re-enabling it, use the workflow's `workflow_dispatch` dry-run against a synthetic version tag to validate npm packaging changes (metadata, scripts, provenance permissions) without minting a real GitHub release:
 
 1. GitHub → Actions → Release → Run workflow → leave `dry_run` set to `true`.
 2. Inspect the job logs for what would be published, including provenance request and tarball contents.
 3. The smoke-test step is skipped in dry-run mode (nothing was actually published).
 
-## Pre-tag checklist (npm)
+## Pre-tag checklist (npm re-enable)
 
 Before tagging a real npm release, confirm:
 
@@ -115,7 +116,7 @@ the CloudFront-fronted S3 mirror so installers work where GitHub is blocked:
 | Channel                 | How                                                         |
 | ----------------------- | ----------------------------------------------------------- |
 | Homebrew                | Coming soon; direct installer is current primary macOS path |
-| npm (convenience)       | Active; wrapper uses trusted publishing, platform packages use `NPM_TOKEN` |
+| npm (convenience)       | Paused; do not use until the published package and release credentials are current |
 | apt/deb (Debian/Ubuntu) | apt-repo.yml → GitHub Pages                                 |
 | rpm (RHEL/Fedora)       | Release artifact (.rpm via GoReleaser)                      |
 | apk (Alpine/Docker)     | Release artifact (.apk via GoReleaser)                      |
