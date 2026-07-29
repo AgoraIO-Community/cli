@@ -1,6 +1,6 @@
 # Agora CLI
 
-<p><a href="https://github.com/AgoraIO/cli/actions/workflows/ci.yml"><img src="https://github.com/AgoraIO/cli/actions/workflows/ci.yml/badge.svg" alt="CI"></a>&nbsp;&nbsp;<a href="https://github.com/AgoraIO/cli/releases"><img src="https://img.shields.io/github/v/release/AgoraIO/cli?label=release" alt="Release"></a>&nbsp;&nbsp;<a href="LICENSE"><img src="https://img.shields.io/github/license/AgoraIO/cli" alt="License"></a></p>
+<p><nobr><a href="https://github.com/AgoraIO/cli/actions/workflows/ci.yml"><img src="https://github.com/AgoraIO/cli/actions/workflows/ci.yml/badge.svg" alt="CI"></a>&nbsp;&nbsp;<a href="https://github.com/AgoraIO/cli/releases"><img src="https://img.shields.io/github/v/release/AgoraIO/cli?label=release" alt="Release"></a>&nbsp;&nbsp;<a href="LICENSE"><img src="https://img.shields.io/github/license/AgoraIO/cli" alt="License"></a></nobr></p>
 
 Native Agora CLI for authentication, project management, quickstart setup, and developer onboarding. Use it to go from an Agora account to a runnable app with one command.
 
