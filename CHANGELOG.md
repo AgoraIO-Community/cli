@@ -15,6 +15,10 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ## [Unreleased]
 
+### Documentation
+
+- Clarify the README Quick Start around interactive `agora init` project selection, `--project` / `--new-project`, `.agora/project.json` vs `project use`, and that env files are written by the CLI rather than downloaded from Console.
+
 ## [0.2.8] - 2026-07-28
 
 Region-aware authentication, OAuth UX, quickstart compatibility, and installer and documentation delivery improvements.
