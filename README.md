@@ -86,7 +86,6 @@ agora login
 # Interactive (TTY): reuses "Default Project" if present; otherwise prompts to pick or create
 agora init my-nextjs-demo --template nextjs
 # Non-interactive / scripts / --json / CI: pass an existing project, or force-create one
-# (otherwise falls back to the most recent project, or creates one when none exist)
 # agora init my-nextjs-demo --template nextjs --project <project-id-or-name>
 # agora init my-nextjs-demo --template nextjs --new-project
 
