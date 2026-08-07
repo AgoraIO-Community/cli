@@ -83,9 +83,10 @@ Recommended path: install the CLI, log in, then run `agora init`. The CLI binds 
 agora login
 
 # 2) Create a local demo bound to a project
-# Interactive (TTY): pick an existing project or create a new one from the prompt
+# Interactive (TTY): reuses "Default Project" if present; otherwise prompts to pick or create
 agora init my-nextjs-demo --template nextjs
-# Non-interactive / scripts: pass an existing project, or force-create one
+# Non-interactive / scripts / --json / CI: pass an existing project, or force-create one
+# (otherwise falls back to the most recent project, or creates one when none exist)
 # agora init my-nextjs-demo --template nextjs --project <project-id-or-name>
 # agora init my-nextjs-demo --template nextjs --new-project
 
@@ -127,7 +128,7 @@ Command examples use `agora` for the installed CLI. Local source builds use `./a
 | Python voice agent | `agora init my-python-demo --template python` | A Python quickstart with `server/.env.local` credentials |
 | Go voice agent | `agora init my-go-demo --template go` | A Go quickstart with `server/.env.local` credentials |
 
-In an interactive terminal, `init` without `--project` prompts you to choose an existing project or create a new one. Pass `--project <id-or-name>` or `--new-project` for scripts/`--json`/CI. Run `agora quickstart list` to see all available templates.
+By default `init` reuses a project named `Default Project` when present. In an interactive TTY without that project, it prompts you to pick an existing project or create a new one. Non-interactive/`--json`/CI runs fall back to the most recent project (or create one when none exist). Pass `--project <id-or-name>` or `--new-project` to control selection explicitly. Run `agora quickstart list` to see all available templates.
 
 ## Command Model
 
@@ -151,10 +152,10 @@ The command model is intentionally layered:
 
 | Goal | Command |
 |------|---------|
-| New user, one shot | `agora init <name> --template <id>` (interactive project picker; or `--project` / `--new-project`) |
+| New user, one shot | `agora init <name> --template <id>` (reuses `Default Project` / interactive picker; or `--project` / `--new-project`) |
 | List available templates | `agora quickstart list` |
 | Clone a starter only | `agora quickstart create ...` |
-| Re-sync / rebind env in a cloned quickstart | `agora quickstart env write [dir] --project <id>` |
+| Re-sync / rebind env in a cloned quickstart | `agora quickstart env write [dir]` (optional `--project` to rebind) |
 | Write env to an arbitrary path / non-quickstart repo | `agora project env write <path>` |
 | Set machine-wide default project | `agora project use <project>` |
 | Install self-test | `agora doctor --json` |
@@ -182,7 +183,7 @@ agora introspect --json
 
 ### `init`
 
-Recommended onboarding command. In an interactive TTY it can prompt you to pick or create a project. Prefer `--project <id-or-name>` or `--new-project` for non-interactive/`--json`/CI runs. It clones a quickstart, writes the template env file from the project API, writes `.agora/project.json`, updates global context, and prints next steps.
+Recommended onboarding command. By default it reuses a project named `Default Project` when present. In an interactive TTY without that project, it prompts you to pick or create one. Non-interactive/`--json`/CI runs fall back to the most recent project (or create one when none exist). Prefer `--project <id-or-name>` or `--new-project` for explicit selection. It clones a quickstart, writes the template env file from the project API, writes `.agora/project.json`, updates global context, and prints next steps.
 
 ### `quickstart`
 
