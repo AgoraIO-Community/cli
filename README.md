@@ -10,6 +10,7 @@ Native Agora CLI for authentication, project management, quickstart setup, and d
 
 - macOS 12+, Linux (glibc 2.31+ or musl), or Windows 10+ for the prebuilt binaries.
 - `git` on `PATH` for `agora init` and `agora quickstart create` (they shell out to `git clone`).
+- PowerShell 7+ (`pwsh`) for the Windows installer. Windows PowerShell 5.1 is not supported.
 - For the source build, the Go toolchain pinned in [`go.mod`](go.mod).
 
 ### Install the CLI
@@ -31,6 +32,8 @@ Windows PowerShell:
 ```powershell
 irm https://dl.agora.io/cli/install.ps1 | iex
 ```
+
+Requires PowerShell 7+ (`pwsh`). If `irm ... | iex` fails in Windows PowerShell 5.1, switch to PowerShell 7 first.
 
 Alternative install paths (GitHub-hosted; use `install.ps1` for PowerShell):
 
