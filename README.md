@@ -32,6 +32,13 @@ Windows PowerShell:
 irm https://dl.agora.io/cli/install.ps1 | iex
 ```
 
+If your PowerShell execution policy blocks inline scripts (the default on most Windows clients), download the installer to disk and run it with `-ExecutionPolicy Bypass`. The `Invoke-WebRequest` form works on both Windows PowerShell 5.1 and PowerShell 7+:
+
+```powershell
+Invoke-WebRequest -Uri https://dl.agora.io/cli/install.ps1 -OutFile .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 Alternative install paths (GitHub-hosted; use `install.ps1` for PowerShell):
 
 ```bash

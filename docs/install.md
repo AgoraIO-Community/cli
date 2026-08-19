@@ -130,10 +130,12 @@ Install only the binary (no shell modifications):
 
 The Windows installer installs `agora.exe` into `%LOCALAPPDATA%\Programs\Agora\bin` by default.
 
-If your PowerShell execution policy blocks inline scripts, download the installer first and run it from disk:
+#### Alternative: download first, then run
+
+Windows PowerShell's default execution policy blocks inline scripts on most machines (`Restricted` is the default for standard users; `RemoteSigned` rejects unsigned CDN content even for admins). If you hit that, download the installer to disk and run it with `-ExecutionPolicy Bypass`. The `Invoke-WebRequest` form below works on both Windows PowerShell 5.1 and PowerShell 7+:
 
 ```powershell
-irm https://dl.agora.io/cli/install.ps1 -OutFile .\install.ps1
+Invoke-WebRequest -Uri https://dl.agora.io/cli/install.ps1 -OutFile .\install.ps1
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
