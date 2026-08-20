@@ -105,8 +105,6 @@ The shell installer is idempotent. Re-running with the same `--version` will det
 
 ### Windows (PowerShell)
 
-Requires PowerShell 7+ (`pwsh`). Windows PowerShell 5.1 is not supported by this installer.
-
 Install the latest release:
 
 ```powershell

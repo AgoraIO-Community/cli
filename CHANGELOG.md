@@ -17,11 +17,11 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ### Changed
 
-- Align the Python quickstart `nextSteps` install command with the upstream template (`bun run setup` instead of `bun install`).
+- Align the Python quickstart `nextSteps` install command with the upstream template (`bun run setup` instead of `bun install`) ([#60](https://github.com/AgoraIO/cli/pull/60)).
 
 ### Documentation
 
-- Clarify the README Quick Start around `agora init` project selection (including `Default Project` reuse vs interactive picker), `--project` / `--new-project`, `.agora/project.json` vs `project use`, and that env files are written by the CLI rather than downloaded from Console.
+- Clarify the README Quick Start around `agora init` project selection (including `Default Project` reuse vs interactive picker), `--project` / `--new-project`, `.agora/project.json` vs `project use`, and that env files are written by the CLI rather than downloaded from Console ([#60](https://github.com/AgoraIO/cli/pull/60)).
 
 ## [0.2.8] - 2026-07-28
 

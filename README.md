@@ -10,7 +10,6 @@ Native Agora CLI for authentication, project management, quickstart setup, and d
 
 - macOS 12+, Linux (glibc 2.31+ or musl), or Windows 10+ for the prebuilt binaries.
 - `git` on `PATH` for `agora init` and `agora quickstart create` (they shell out to `git clone`).
-- PowerShell 7+ (`pwsh`) for the Windows installer. Windows PowerShell 5.1 is not supported.
 - For the source build, the Go toolchain pinned in [`go.mod`](go.mod).
 
 ### Install the CLI
@@ -32,8 +31,6 @@ Windows PowerShell:
 ```powershell
 irm https://dl.agora.io/cli/install.ps1 | iex
 ```
-
-Requires PowerShell 7+ (`pwsh`). If `irm ... | iex` fails in Windows PowerShell 5.1, switch to PowerShell 7 first.
 
 Alternative install paths (GitHub-hosted; use `install.ps1` for PowerShell):
 
@@ -88,7 +85,7 @@ agora login
 # 2) Create a local demo bound to a project
 # Interactive (TTY): reuses "Default Project" if present; otherwise prompts to pick or create
 agora init my-nextjs-demo --template nextjs
-# Non-interactive / scripts / --json / CI: pass an existing project, or force-create one
+# For deterministic non-interactive / --json / CI runs, select or create explicitly
 # agora init my-nextjs-demo --template nextjs --project <project-id-or-name>
 # agora init my-nextjs-demo --template nextjs --new-project
 
@@ -118,7 +115,7 @@ cd my-nextjs-demo
 agora quickstart env write . --project <project-id-or-name>
 ```
 
-If a command reports `No project selected`, pass `--project`, run `agora project use <project>`, or work inside a directory that already has `.agora/project.json`. That is expected when none of those contexts exist—not a missing Console env download.
+If an env or project command reports `No project selected`, pass `--project`, run `agora project use <project>`, or work inside a directory that already has `.agora/project.json`. That is expected when none of those contexts exist—not a missing Console env download. `agora init` uses the onboarding selection flow described above instead.
 
 Command examples use `agora` for the installed CLI. Local source builds use `./agora` from the repo root.
 
@@ -159,7 +156,7 @@ The command model is intentionally layered:
 | Clone a starter only | `agora quickstart create ...` |
 | Re-sync / rebind env in a cloned quickstart | `agora quickstart env write [dir]` (optional `--project` to rebind) |
 | Write env to an arbitrary path / non-quickstart repo | `agora project env write <path>` |
-| Set machine-wide default project | `agora project use <project>` |
+| Set global CLI project context | `agora project use <project>` |
 | Install self-test | `agora doctor --json` |
 | Project/workspace readiness | `agora project doctor --json` (add `--deep` in a bound repo) |
 | Manage feature webhooks | `agora project webhook ... --json` |
@@ -261,9 +258,9 @@ See [docs/automation.md](docs/automation.md) for JSON fields and the full creden
 
 ### Repo-local binding
 
-`.agora/project.json` is the **repo-local** project binding (not the env file). It lets the CLI know which Agora project a cloned demo uses when you work inside that repo later. `agora project use` only sets a **machine-wide** default and does not rewrite `.agora/project.json`.
+`.agora/project.json` is the **repo-local** project binding (not the env file). It lets the CLI know which Agora project a cloned demo uses when you work inside that repo later. `agora project use` only sets the **global CLI context** and does not rewrite `.agora/project.json`.
 
-Project resolution precedence is consistent across commands:
+Commands that resolve an existing project context, including env-write commands, use this precedence:
 
 1. explicit `--project` or positional project argument
 2. repo-local `.agora/project.json` resolved from the target repo path
