@@ -32,6 +32,7 @@ func initNextSteps(template quickstartTemplate, targetDir string) []string {
 	if template.RunCommand != "" {
 		steps = append(steps, template.RunCommand)
 	}
+	steps = append(steps, template.AdditionalSteps...)
 	return steps
 }
 
@@ -328,6 +329,10 @@ func (a *App) resolveInitProject(ctx projectContext, item projectSummary) (proje
 }
 
 func (a *App) initProject(name, targetDir string, template quickstartTemplate, existingProject string, features []string, rtmDataCenter string, newProject bool, promptForReuse bool, promptOut io.Writer, promptIn io.Reader, progress progressEmitter) (map[string]any, error) {
+	if !template.Available || !template.SupportsInit {
+		return nil, &cliError{Message: fmt.Sprintf("Quickstart template %q is not supported by `agora init`. Use `agora quickstart create` instead.", template.ID), Code: "QUICKSTART_TEMPLATE_UNAVAILABLE"}
+	}
+
 	var target projectTarget
 	projectAction := "existing"
 	projectSelectionReason := "explicit_project"

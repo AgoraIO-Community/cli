@@ -23,15 +23,16 @@ type quickstartTemplate struct {
 	// have no China-hosted mirror yet; set them to the cn URL when one
 	// exists and quickstartRepoURLForRegion / quickstartDocsURL will pick
 	// it up automatically (an empty value falls back to the global URL).
-	RepoURLCN      string
-	DocsURL        string
-	DocsURLCN      string
-	EnvLayouts     []quickstartEnvLayout
-	InstallCommand string
-	RunCommand     string
-	EnvDocsSummary string
-	SupportsInit   bool
-	Available      bool
+	RepoURLCN       string
+	DocsURL         string
+	DocsURLCN       string
+	EnvLayouts      []quickstartEnvLayout
+	InstallCommand  string
+	RunCommand      string
+	AdditionalSteps []string
+	EnvDocsSummary  string
+	SupportsInit    bool
+	Available       bool
 }
 
 // quickstartEnvLayout describes one supported upstream layout for a
@@ -128,6 +129,33 @@ func quickstartTemplates() []quickstartTemplate {
 			InstallCommand: "make setup",
 			RunCommand:     "make dev",
 			EnvDocsSummary: "Copies server/.env.example to server/.env.local, then writes AGORA_APP_ID and AGORA_APP_CERTIFICATE.",
+			SupportsInit:   true,
+			Available:      true,
+		},
+		{
+			ID:          "android",
+			Title:       "Conversational AI Android Quickstart",
+			Description: "Clone the official Android client and Python server quickstart.",
+			Runtime:     "android",
+			RepoURL:     "https://github.com/AgoraIO-Conversational-AI/agent-quickstart-android",
+			RepoURLCN:   "https://github.com/AgoraIO-Conversational-AI/agent-quickstart-android",
+			DocsURL:     "https://github.com/AgoraIO-Conversational-AI/agent-quickstart-android",
+			DocsURLCN:   "https://github.com/AgoraIO-Conversational-AI/agent-quickstart-android",
+			EnvLayouts: []quickstartEnvLayout{{
+				DetectPaths:       []string{"server/.env.example", "server/requirements-dev.txt", "app/src/main/AndroidManifest.xml"},
+				EnvExamplePath:    "server/.env.example",
+				EnvTargetPath:     "server/.env.local",
+				AppIDKey:          "AGORA_APP_ID",
+				AppCertificateKey: "AGORA_APP_CERTIFICATE",
+			}},
+			InstallCommand: "python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements-dev.txt",
+			RunCommand:     "./server/run.sh",
+			AdditionalSteps: []string{
+				"./server/tunnel.sh --provider ngrok",
+				"./server/configure-android.sh https://your-public-host",
+				"./gradlew :app:assembleDebug",
+			},
+			EnvDocsSummary: "Copies server/.env.example to server/.env.local and writes server-only Agora credentials; configure local.properties later with the public HTTPS server URL.",
 			SupportsInit:   true,
 			Available:      true,
 		},
