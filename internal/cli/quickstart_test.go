@@ -359,7 +359,7 @@ func TestQuickstartDocsURLForRegion(t *testing.T) {
 	}
 	if got := quickstartDocsURL(tmpl, regionCN); got != tmpl.DocsURLCN {
 		t.Fatalf("cn docs url = %q, want %q", got, tmpl.DocsURLCN)
- 	}
+	}
 }
 
 func TestQuickstartTemplatesIncludeAndroid(t *testing.T) {
@@ -390,5 +390,16 @@ func TestQuickstartTemplatesIncludeAndroid(t *testing.T) {
 	}
 	if !android.Available || !android.SupportsInit {
 		t.Fatalf("unexpected android flags: available=%v supportsInit=%v", android.Available, android.SupportsInit)
+	}
+	wantSteps := []string{
+		"cd android-demo",
+		"python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements-dev.txt",
+		"./server/run.sh",
+		"./server/tunnel.sh --provider ngrok",
+		"./server/configure-android.sh https://your-public-host",
+		"./gradlew :app:assembleDebug",
+	}
+	if got := initNextSteps(android, "/tmp/android-demo"); !reflect.DeepEqual(got, wantSteps) {
+		t.Fatalf("unexpected Android next steps:\n got: %#v\nwant: %#v", got, wantSteps)
 	}
 }

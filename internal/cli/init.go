@@ -32,6 +32,7 @@ func initNextSteps(template quickstartTemplate, targetDir string) []string {
 	if template.RunCommand != "" {
 		steps = append(steps, template.RunCommand)
 	}
+	steps = append(steps, template.AdditionalSteps...)
 	return steps
 }
 

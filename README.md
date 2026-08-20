@@ -100,6 +100,8 @@ Command examples use `agora` for the installed CLI. Local source builds use `./a
 | Go voice agent | `agora init my-go-demo --template go` | A Go quickstart with Agora credentials written for the backend |
 | Android voice AI app | `agora init my-android-demo --template android` | An Android client with credentials written only to the included Python server |
 
+Android follows the same project binding and env-writing flow as the web quickstarts. Its `nextSteps` additionally cover starting the Python server, opening a temporary HTTPS tunnel, writing that public URL to `local.properties`, and assembling the Android client. The App Certificate remains only in `server/.env.local`.
+
 Run `agora quickstart list` to see all available templates.
 
 ## Command Model

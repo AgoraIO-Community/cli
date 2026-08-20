@@ -15,6 +15,10 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ## [Unreleased]
 
+### Added
+
+- Add the Android conversational AI client/server quickstart to `agora init` and `agora quickstart`, writing credentials only to the included Python server and returning setup steps for the server, HTTPS tunnel, and Android client ([#55](https://github.com/AgoraIO/cli/pull/55)).
+
 ## [0.2.8] - 2026-07-28
 
 Region-aware authentication, OAuth UX, quickstart compatibility, and installer and documentation delivery improvements.

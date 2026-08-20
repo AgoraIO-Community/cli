@@ -23,15 +23,16 @@ type quickstartTemplate struct {
 	// have no China-hosted mirror yet; set them to the cn URL when one
 	// exists and quickstartRepoURLForRegion / quickstartDocsURL will pick
 	// it up automatically (an empty value falls back to the global URL).
-	RepoURLCN      string
-	DocsURL        string
-	DocsURLCN      string
-	EnvLayouts     []quickstartEnvLayout
-	InstallCommand string
-	RunCommand     string
-	EnvDocsSummary string
-	SupportsInit   bool
-	Available      bool
+	RepoURLCN       string
+	DocsURL         string
+	DocsURLCN       string
+	EnvLayouts      []quickstartEnvLayout
+	InstallCommand  string
+	RunCommand      string
+	AdditionalSteps []string
+	EnvDocsSummary  string
+	SupportsInit    bool
+	Available       bool
 }
 
 // quickstartEnvLayout describes one supported upstream layout for a
@@ -149,6 +150,11 @@ func quickstartTemplates() []quickstartTemplate {
 			}},
 			InstallCommand: "python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements-dev.txt",
 			RunCommand:     "./server/run.sh",
+			AdditionalSteps: []string{
+				"./server/tunnel.sh --provider ngrok",
+				"./server/configure-android.sh https://your-public-host",
+				"./gradlew :app:assembleDebug",
+			},
 			EnvDocsSummary: "Copies server/.env.example to server/.env.local and writes server-only Agora credentials; configure local.properties later with the public HTTPS server URL.",
 			SupportsInit:   true,
 			Available:      true,
@@ -366,15 +372,11 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	if err != nil {
 		return nil, err
 	}
-	effectiveRef := strings.TrimSpace(ref)
-	if effectiveRef == "" {
-		effectiveRef = strings.TrimSpace(template.Ref)
-	}
 	if overrideKey != "" {
 		progress.emit("clone:override", fmt.Sprintf("Using repo override from %s", overrideKey), map[string]any{"repoUrl": repoURL, "envVar": overrideKey})
 	}
-	progress.emit("clone:start", "Cloning quickstart repository", map[string]any{"repoUrl": repoURL, "targetPath": absTarget, "ref": effectiveRef})
-	if err := cloneQuickstartRepo(repoURL, absTarget, effectiveRef); err != nil {
+	progress.emit("clone:start", "Cloning quickstart repository", map[string]any{"repoUrl": repoURL, "targetPath": absTarget, "ref": ref})
+	if err := cloneQuickstartRepo(repoURL, absTarget, ref); err != nil {
 		return nil, err
 	}
 	progress.emit("clone:complete", "Quickstart repository cloned", map[string]any{"targetPath": absTarget})
@@ -435,7 +437,7 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 		"title":        template.Title,
 		"written":      written,
 		"nextSteps":    initNextSteps(template, absTarget),
-		"ref":          effectiveRef,
+		"ref":          ref,
 	}
 	if boundProject != nil {
 		result["projectId"] = boundProject.project.ProjectID
