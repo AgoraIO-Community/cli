@@ -10,6 +10,7 @@ Native Agora CLI for authentication, project management, quickstart setup, and d
 
 - macOS 12+, Linux (glibc 2.31+ or musl), or Windows 10+ for the prebuilt binaries.
 - `git` on `PATH` for `agora init` and `agora quickstart create` (they shell out to `git clone`).
+- PowerShell 7+ (`pwsh`) for the native Windows installer.
 - For the source build, the Go toolchain pinned in [`go.mod`](go.mod).
 
 ### Install the CLI
@@ -26,18 +27,20 @@ agora --help
 
 The script is served from the Agora CDN (`dl.agora.io`, CloudFront). Binaries download from GitHub by default and automatically fall back to the CDN mirror if GitHub is unreachable; downloads are verified against `checksums.txt` regardless of source.
 
-Windows PowerShell:
+Windows PowerShell 7+:
 
 ```powershell
 irm https://dl.agora.io/cli/install.ps1 | iex
 ```
 
-If your PowerShell execution policy blocks inline scripts (the default on most Windows clients), download the installer to disk and run it with `-ExecutionPolicy Bypass`. The `Invoke-WebRequest` form works on both Windows PowerShell 5.1 and PowerShell 7+:
+If execution policy blocks the installer, download it to disk and launch it in a new PowerShell 7 process with a process-scoped bypass:
 
 ```powershell
 Invoke-WebRequest -Uri https://dl.agora.io/cli/install.ps1 -OutFile .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
+
+An organization-level `MachinePolicy` or `UserPolicy` can override the process setting. In that case, ask an administrator to allow the script or use a verified release archive instead.
 
 Alternative install paths (GitHub-hosted; use `install.ps1` for PowerShell):
 

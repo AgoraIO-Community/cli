@@ -15,6 +15,15 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ## [Unreleased]
 
+### Changed
+
+- Pause npm installation guidance because the published `agoraio-cli` package may be stale; direct installers and verified release archives remain the supported installation paths ([68632f7](https://github.com/AgoraIO/cli/commit/68632f7)).
+- Expand installation guidance with the canonical Agora CDN, GitHub-hosted fallbacks, the S3 mirror option, and a PowerShell 7 guard with an actionable process-scoped execution-policy workaround ([03f46af](https://github.com/AgoraIO/cli/commit/03f46af), [#61](https://github.com/AgoraIO/cli/pull/61)).
+
+### Fixed
+
+- Bump the pinned Go toolchain to 1.26.6 to address reachable standard-library vulnerabilities reported by `govulncheck` in Go 1.26.5.
+
 ## [0.2.8] - 2026-07-28
 
 Region-aware authentication, OAuth UX, quickstart compatibility, and installer and documentation delivery improvements.
