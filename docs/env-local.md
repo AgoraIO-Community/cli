@@ -51,11 +51,18 @@ After authentication, the CLI fetches the selected project's details from the
 Agora CLI project API. The App ID and App Certificate returned for that project
 are written to the local env file.
 
-Project selection follows this precedence:
+Commands that resolve an existing project context, including `quickstart create`,
+`quickstart env write`, and `project env write`, use this precedence:
 
 1. Explicit `--project <id-or-name>`
 2. Repo-local `.agora/project.json`
 3. Global project context set by `agora project use`
+
+`agora init` has a separate onboarding flow. Use `--project` to select an
+existing project or `--new-project` to force creation. Without either flag, it
+prefers a project named `Default Project`, prompts in an interactive terminal,
+uses the most recently created project in non-interactive runs, or creates a
+project when none exist.
 
 The selected project must have an App Certificate. If it does not, enable one
 in Agora Console or select a different project before writing the env file.

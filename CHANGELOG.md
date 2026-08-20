@@ -17,7 +17,7 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 ### Documentation
 
-- Add `docs/env-local.md` explaining that Quickstart env files are created by the CLI from the template example plus the selected project's App ID and App Certificate (not downloaded from Console); link it from `README.md`, `docs/llms.txt`, and `docs/sitemap.xml`.
+- Add `docs/env-local.md` explaining that Quickstart env files are created by the CLI from the template example plus the selected project's App ID and App Certificate (not downloaded from Console); link it from `README.md`, `docs/llms.txt`, and `docs/sitemap.xml` ([#59](https://github.com/AgoraIO/cli/pull/59)).
 
 ## [0.2.8] - 2026-07-28
 
