@@ -23,6 +23,7 @@ Earlier entries pre-date this convention and only carry their version's compare 
 
 - Pause npm installation guidance because the published `agoraio-cli` package may be stale; direct installers and verified release archives remain the supported installation paths ([68632f7](https://github.com/AgoraIO/cli/commit/68632f7)).
 - Expand installation guidance with the canonical Agora CDN, GitHub-hosted fallbacks, the S3 mirror option, and a PowerShell 7 guard with an actionable process-scoped execution-policy workaround ([03f46af](https://github.com/AgoraIO/cli/commit/03f46af), [#61](https://github.com/AgoraIO/cli/pull/61)).
+- Align the Python quickstart `nextSteps` install command with the upstream template (`bun run setup` instead of `bun install`) ([#60](https://github.com/AgoraIO/cli/pull/60)).
 
 ### Fixed
 
@@ -31,6 +32,7 @@ Earlier entries pre-date this convention and only carry their version's compare 
 ### Documentation
 
 - Add `docs/env-local.md` explaining that Quickstart env files are created by the CLI from the template example plus the selected project's App ID and App Certificate (not downloaded from Console); link it from `README.md`, `docs/llms.txt`, and `docs/sitemap.xml` ([#59](https://github.com/AgoraIO/cli/pull/59)).
+- Clarify the README Quick Start around `agora init` project selection (including `Default Project` reuse vs interactive picker), `--project` / `--new-project`, `.agora/project.json` vs `project use`, and that env files are written by the CLI rather than downloaded from Console ([#60](https://github.com/AgoraIO/cli/pull/60)).
 
 ## [0.2.8] - 2026-07-28
 
