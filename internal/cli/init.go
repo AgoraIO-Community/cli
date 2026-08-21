@@ -426,7 +426,7 @@ func (a *App) initProject(name, targetDir string, template quickstartTemplate, e
 		progress.emit("project:reuse", "Reusing existing Agora project", map[string]any{"projectId": target.project.ProjectID, "projectName": target.project.Name})
 	}
 
-	quickstartResult, err := a.quickstartCreate(template, targetDir, target.project.ProjectID, "", progress)
+	quickstartResult, err := a.quickstartCreate(template, targetDir, target.project.ProjectID, false, false, promptOut, promptIn, "", progress)
 	if err != nil {
 		return nil, err
 	}

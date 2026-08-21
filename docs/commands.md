@@ -333,6 +333,7 @@ Clone an official Agora quickstart into a new directory
 | `--project` | `string` | — | project ID or exact project name to use for env seeding |
 | `--ref` | `string` | — | git branch, tag, or ref to clone for pinned workshops |
 | `--template` | `string` | — | quickstart template ID from `agora quickstart list` |
+| `--template-only` | `bool` | — | clone without resolving a project or writing credentials |
 
 ### `agora quickstart env`
 

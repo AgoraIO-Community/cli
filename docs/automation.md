@@ -42,6 +42,7 @@ Use this guide for:
 - Use `--yes` (or `-y`) / `AGORA_NO_INPUT=1` to assume the default answer to confirmation prompts. Following industry convention for `-y` (apt-style), the flag never starts brand-new interactive flows: in JSON, CI, or non-TTY contexts the CLI still fails fast with the same `AUTH_UNAUTHENTICATED` error you would have seen without `--yes`, instead of silently launching an OAuth browser flow.
 - Interactive login prompts only appear in interactive pretty-mode TTY runs. Automation should authenticate up front with `agora login`; `--json`, `AGORA_OUTPUT=json`, detected CI environments, and non-TTY stdin all skip the prompt and fail with `AUTH_UNAUTHENTICATED`.
 - In non-interactive runs (`--yes`, JSON, CI, non-TTY), pass `--template` explicitly to `agora init`. The CLI now fails fast with `QUICKSTART_TEMPLATE_REQUIRED` instead of silently selecting a template.
+- In non-interactive `quickstart create` runs, pass `--project <id-or-name>` (or establish global project context) to configure the scaffold, or pass `--template-only` to explicitly skip project and credential resolution. Otherwise the CLI fails before cloning with `QUICKSTART_PROJECT_REQUIRED`.
 - Output mode precedence is: explicit CLI flag (`--json` or `--output`) first, user-set `AGORA_OUTPUT` second, then user-customized config file value, then **CI auto-detect → JSON** (see below), then pretty.
 - Set `AGORA_AGENT=<tool-name>` in automated environments to explicitly label agent traffic in the API `User-Agent`. When unset, the CLI may infer a coarse label such as `cursor`, `claude-code`, `cline`, `windsurf`, `codex`, or `aider` from known agent environment markers. Set `AGORA_AGENT_DISABLE_INFER=1` to disable inference.
 - Use `agora mcp serve` to expose local Agora CLI tools to MCP-capable agents. The full surface is exposed: `agora.version`, `agora.introspect`, `agora.auth.{status,logout}`, `agora.config.{path,get}`, `agora.telemetry.status`, `agora.upgrade.check`, `agora.project.{list,show,use,create,doctor,env,env_write}`, `agora.project.feature.{list,status,enable}`, `agora.project.webhook.{events,list,show,create,update,delete}`, `agora.quickstart.{list,create,env_write}`, and `agora.init`. Authentication is intentionally **not** exposed via MCP because OAuth requires an interactive browser; run `agora login` once on the host first.
@@ -614,6 +615,7 @@ Display-oriented fields:
 
 Automation notes:
 - `--ref <branch|tag|ref>` pins the cloned quickstart source for workshops and reproducible demos.
+- `--template-only` explicitly skips project lookup and env-file creation. Without a resolved project or this flag, non-interactive runs fail with `QUICKSTART_PROJECT_REQUIRED` before cloning.
 
 Example:
 

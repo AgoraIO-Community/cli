@@ -134,8 +134,8 @@ Command examples use `agora` for the installed CLI. Local source builds use `./a
 | Goal | Command | What You Get |
 |------|---------|--------------|
 | Next.js video app | `agora init my-nextjs-demo --template nextjs` | A cloned Next.js quickstart, `.agora` binding, and `.env.local` |
-| Python voice agent | `agora init my-python-demo --template python` | A Python quickstart with `server/.env.local` credentials |
-| Go voice agent | `agora init my-go-demo --template go` | A Go quickstart with `server/.env.local` credentials |
+| Python voice agent | `agora init my-python-demo --template python` | A Python quickstart with `server/.env` credentials |
+| Go voice agent | `agora init my-go-demo --template go` | A Go quickstart with `server/.env` credentials |
 | Android voice AI app | `agora init my-android-demo --template android` | An Android client with credentials written only to the included Python server |
 
 Android follows the same project binding and env-writing flow as the web quickstarts. Its `nextSteps` additionally cover starting the Python server, opening a temporary HTTPS tunnel, writing that public URL to `local.properties`, and assembling the Android client. The App Certificate remains only in `server/.env.local`.
@@ -166,7 +166,7 @@ The command model is intentionally layered:
 |------|---------|
 | New user, one shot | `agora init <name> --template <id>` (reuses `Default Project` / interactive picker; or `--project` / `--new-project`) |
 | List available templates | `agora quickstart list` |
-| Clone a starter only | `agora quickstart create ...` |
+| Clone a starter only | `agora quickstart create ... --template-only` |
 | Re-sync / rebind env in a cloned quickstart | `agora quickstart env write [dir]` (optional `--project` to rebind) |
 | Write env to an arbitrary path / non-quickstart repo | `agora project env write <path>` |
 | Set global CLI project context | `agora project use <project>` |
@@ -259,8 +259,8 @@ Prefer `agora quickstart env write` inside official quickstarts. Use `agora proj
 Quickstart template behavior:
 
 - Next.js quickstarts write `.env.local` with `NEXT_PUBLIC_AGORA_APP_ID` plus `NEXT_AGORA_APP_CERTIFICATE`
-- Python quickstarts copy `server/.env.example` to `server/.env.local`, then use `AGORA_APP_ID` plus `AGORA_APP_CERTIFICATE`
-- Go quickstarts copy `server/.env.example` to `server/.env.local`, then use `AGORA_APP_ID` plus `AGORA_APP_CERTIFICATE`
+- Python quickstarts copy `server/.env.example` to `server/.env`, then use `AGORA_APP_ID` plus `AGORA_APP_CERTIFICATE`
+- Go quickstarts copy `server/.env.example` to `server/.env`, then use `AGORA_APP_ID` plus `AGORA_APP_CERTIFICATE`
 - Existing Python and Go quickstarts keep their recorded env path and legacy `APP_ID` / `APP_CERTIFICATE` keys when reconfigured.
 
 `project env write` auto-detects Next.js workspaces (or accepts `--template nextjs|standard`) and writes `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE` or the Next.js equivalents.

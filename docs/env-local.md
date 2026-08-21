@@ -15,7 +15,7 @@ writes the credential keys required by that runtime.
 | Command | Behavior |
 |---------|----------|
 | `agora init <name> --template <id>` | Clones the Quickstart, selects or creates a project, and writes its env file. |
-| `agora quickstart create ...` | Writes the env file when a project is resolved; without a project, it clones the template only. |
+| `agora quickstart create ...` | Writes the env file when a project is resolved; use `--template-only` to explicitly clone without credentials. Interactive runs prompt when no project resolves. |
 | `agora quickstart env write [dir]` | Creates or updates the runtime-specific env file in an existing Quickstart. |
 | `agora project env write [path]` | Creates or updates a dotenv file at the selected path without cloning a Quickstart. |
 
@@ -24,8 +24,8 @@ Quickstart env layouts:
 | Quickstart | Example source | Target path | Credential keys |
 |------------|----------------|-------------|-----------------|
 | Next.js | `env.local.example` | `.env.local` | `NEXT_PUBLIC_AGORA_APP_ID`, `NEXT_AGORA_APP_CERTIFICATE` |
-| Python | `server/.env.example` | `server/.env.local` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
-| Go | `server/.env.example` | `server/.env.local` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
+| Python | `server/.env.example` | `server/.env` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
+| Go | `server/.env.example` | `server/.env` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
 
 If the target env file already exists, the CLI uses it as the starting content
 and updates the Agora credential keys while preserving unrelated entries. If

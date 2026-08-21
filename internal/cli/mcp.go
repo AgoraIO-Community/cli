@@ -241,12 +241,13 @@ func mcpTools() []map[string]any {
 
 		// Quickstart
 		mcpTool("agora.quickstart.list", "List quickstart templates", nil),
-		mcpTool("agora.quickstart.create", "Clone a quickstart and optionally bind a project", map[string]string{
-			"name":     "string",
-			"template": "string",
-			"project":  "string",
-			"ref":      "string",
-			"dir":      "string",
+		mcpTool("agora.quickstart.create", "Clone a quickstart with a project or explicitly as template-only", map[string]string{
+			"name":         "string",
+			"template":     "string",
+			"project":      "string",
+			"templateOnly": "boolean",
+			"ref":          "string",
+			"dir":          "string",
 		}),
 		mcpTool("agora.quickstart.env_write", "Write env values into a previously-cloned quickstart", map[string]string{"dir": "string", "template": "string", "project": "string"}),
 
@@ -523,7 +524,7 @@ func (a *App) callMCPTool(name string, args map[string]any, progress progressEmi
 		if target == "" {
 			return nil, errors.New("name or dir is required")
 		}
-		return a.quickstartCreate(*template, target, stringArg(args, "project"), stringArg(args, "ref"), progress)
+		return a.quickstartCreate(*template, target, stringArg(args, "project"), boolArg(args, "templateOnly", false), false, io.Discard, bytes.NewReader(nil), stringArg(args, "ref"), progress)
 
 	case "agora.quickstart.env_write":
 		return a.quickstartEnvWrite(defaultString(stringArg(args, "dir"), "."), stringArg(args, "template"), stringArg(args, "project"))

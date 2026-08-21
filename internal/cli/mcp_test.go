@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -290,7 +291,7 @@ func TestMCPQuickstartCreateEmitsProgressNotifications(t *testing.T) {
 	t.Setenv("AGORA_QUICKSTART_NEXTJS_REPO_URL", repo)
 	a := newTestApp(t)
 	target := filepath.Join(t.TempDir(), "demo")
-	frame := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"agora.quickstart.create","arguments":{"template":"nextjs","dir":` + strconv.Quote(target) + `},"_meta":{"progressToken":"clone-1"}}}` + "\n")
+	frame := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"agora.quickstart.create","arguments":{"template":"nextjs","templateOnly":true,"dir":` + strconv.Quote(target) + `},"_meta":{"progressToken":"clone-1"}}}` + "\n")
 	var out bytes.Buffer
 	if err := a.serveMCP(bytes.NewReader(frame), &out); err != nil {
 		t.Fatalf("serveMCP: %v", err)
@@ -308,6 +309,22 @@ func TestMCPQuickstartCreateEmitsProgressNotifications(t *testing.T) {
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected final error: %+v\nall output: %q", resp.Error, out.String())
+	}
+}
+
+func TestMCPQuickstartCreateRequiresProjectOrTemplateOnly(t *testing.T) {
+	a := newTestApp(t)
+	target := filepath.Join(t.TempDir(), "demo")
+	frame := []byte(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"agora.quickstart.create","arguments":{"template":"nextjs","dir":` + strconv.Quote(target) + `}}}` + "\n")
+	var out bytes.Buffer
+	if err := a.serveMCP(bytes.NewReader(frame), &out); err != nil {
+		t.Fatalf("serveMCP: %v", err)
+	}
+	if !strings.Contains(out.String(), "No project selected") || !strings.Contains(out.String(), "--template-only") {
+		t.Fatalf("expected MCP project requirement error, got %q", out.String())
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected MCP project resolution to fail before cloning, got %v", err)
 	}
 }
 

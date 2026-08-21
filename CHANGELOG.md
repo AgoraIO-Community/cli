@@ -24,10 +24,12 @@ Earlier entries pre-date this convention and only carry their version's compare 
 - Pause npm installation guidance because the published `agoraio-cli` package may be stale; direct installers and verified release archives remain the supported installation paths ([68632f7](https://github.com/AgoraIO/cli/commit/68632f7)).
 - Expand installation guidance with the canonical Agora CDN, GitHub-hosted fallbacks, the S3 mirror option, and a PowerShell 7 guard with an actionable process-scoped execution-policy workaround ([03f46af](https://github.com/AgoraIO/cli/commit/03f46af), [#61](https://github.com/AgoraIO/cli/pull/61)).
 - Align the Python quickstart `nextSteps` install command with the upstream template (`bun run setup` instead of `bun install`) ([#60](https://github.com/AgoraIO/cli/pull/60)).
+- Make clone-only quickstart creation explicit with `--template-only`; interactive runs prompt for an existing project when none resolves, while JSON, CI, and non-TTY runs fail before cloning with `QUICKSTART_PROJECT_REQUIRED`.
 
 ### Fixed
 
 - Bump the pinned Go toolchain to 1.26.6 to address reachable standard-library vulnerabilities reported by `govulncheck` in Go 1.26.5.
+- Ensure `agora init` and quickstart env writes create `server/.env` with `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` for Python and Go, including older directory layouts that previously emitted unsupported unprefixed names; align with the upstream Python and Go env-file migrations ([Python #26](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-python/pull/26), [Go #8](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-go/pull/8)).
 
 ### Documentation
 

@@ -39,6 +39,8 @@ This catalog is the source of truth for stable codes. CI runs `make snapshot-err
 | `QUICKSTART_TEMPLATE_UNKNOWN` | 1 | The template ID is not known to this CLI. | Run `agora quickstart list`. |
 | `QUICKSTART_TEMPLATE_UNAVAILABLE` | 1 | The template exists but is not currently available. | Choose an available template. |
 | `QUICKSTART_TEMPLATE_ENV_UNSUPPORTED` | 1 | The selected template does not define an env target path. | Choose a template with env support or configure the env file manually. |
+| `QUICKSTART_PROJECT_REQUIRED` | 1 | `quickstart create` could not resolve a project in a non-interactive run, or the account has no projects to select interactively. | Pass `--project`, set global context with `agora project use`, use `agora init`, or explicitly pass `--template-only`. |
+| `QUICKSTART_CREATE_ABORTED` | 1 | The interactive quickstart project picker was canceled. | Re-run and select a project, or pass `--template-only`. |
 | `QUICKSTART_TARGET_EXISTS` | 1 | The clone target already exists. | Choose a new directory. |
 | `QUICKSTART_REF_INVALID` | 1 | `--ref` is empty after trimming, starts with `-`, or contains whitespace/control characters. | Pass a valid git branch, tag, or commit (no leading `-`). |
 | `QUICKSTART_REPO_OVERRIDE_INVALID` | 1 | The `AGORA_QUICKSTART_<TEMPLATE>_REPO_URL` env override is set to a malformed value. | Set the variable to an `https://`, `ssh://`, `git://`, `file://`, `git@host:path`, or absolute local path URL — or unset it. |
