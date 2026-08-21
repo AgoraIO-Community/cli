@@ -455,7 +455,7 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 			case "none":
 				return nil, &cliError{Message: "No Agora projects are available. Use `agora init` or `agora project create` to create one, or pass `--template-only` to clone without credentials.", Code: "QUICKSTART_PROJECT_REQUIRED"}
 			case "template-only":
-				templateOnly = true
+				// Leave boundProject nil so the clone continues without env injection.
 			case "abort":
 				return nil, &cliError{Message: "Quickstart creation aborted by user.", Code: "QUICKSTART_CREATE_ABORTED"}
 			default:
