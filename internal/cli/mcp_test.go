@@ -236,11 +236,8 @@ func TestMCPConfigIDArgAcceptsIntegralFloat64(t *testing.T) {
 
 func TestMCPOptionalBoolArgFalseIsNonNil(t *testing.T) {
 	got := optionalBoolArg(map[string]any{"enabled": false}, "enabled")
-	if got == nil {
-		t.Fatal("optionalBoolArg returned nil for false")
-	}
-	if *got {
-		t.Fatal("optionalBoolArg returned true, want false")
+	if got == nil || *got {
+		t.Fatalf("optionalBoolArg = %v, want non-nil false", got)
 	}
 }
 
