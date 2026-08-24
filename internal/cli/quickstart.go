@@ -369,7 +369,9 @@ func (a *App) buildQuickstartEnv() *cobra.Command {
 		Short: "Write framework-specific env files for a quickstart repo",
 		Long: `Update the local env file for a cloned quickstart repository.
 
-The CLI can infer the quickstart type from the repository layout, or you can force it with --template.`,
+This is the canonical env-write command for official Agora quickstarts. The CLI selects the template-specific path, seeds its example file, normalizes legacy credential names, and updates quickstart metadata.
+
+The CLI can infer the quickstart type from the repository layout, or you can force it with --template. Use ` + "`agora project env write <file>`" + ` instead for an explicit file in a custom repository.`,
 		Example: example(`
   agora quickstart env write
   agora quickstart env write apps/my-nextjs-demo
@@ -860,63 +862,19 @@ func seedQuickstartEnv(root string, template quickstartTemplate, layout quicksta
 	if layout.EnvTargetPath == "" {
 		return "", "", &cliError{Message: fmt.Sprintf("Quickstart template %q does not define an env target yet.", template.ID), Code: "QUICKSTART_TEMPLATE_ENV_UNSUPPORTED"}
 	}
-	if project.SignKey == nil || *project.SignKey == "" {
-		return "", "", &cliError{Message: fmt.Sprintf("project %q does not have an app certificate. Enable one in Agora Console or use a different project with `agora project use`.", project.Name), Code: "PROJECT_NO_CERTIFICATE"}
-	}
-
 	targetPath := filepath.Join(root, filepath.FromSlash(layout.EnvTargetPath))
-
-	existingContent := ""
-	status := "created"
-	if raw, err := os.ReadFile(targetPath); err == nil {
-		existingContent = string(raw)
-		status = ""
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", "", err
-	} else if layout.EnvExamplePath != "" {
-		examplePath := filepath.Join(root, filepath.FromSlash(layout.EnvExamplePath))
-		if raw, err := os.ReadFile(examplePath); err == nil {
-			existingContent = string(raw)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return "", "", err
-		}
+	examplePath := ""
+	if layout.EnvExamplePath != "" {
+		examplePath = filepath.Join(root, filepath.FromSlash(layout.EnvExamplePath))
 	}
-
-	values := renderQuickstartEnvValues(layout, project)
-	content, mergeStatus := mergeEnvAssignments(existingContent, values, [][2]string{{"# BEGIN AGORA CLI QUICKSTART", "# END AGORA CLI QUICKSTART"}}, conflictingQuickstartEnvKeys(layout))
-	if status == "" {
-		status = mergeStatus
-	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	written, err := writeCredentialEnv(credentialEnvTarget{
+		Path:              targetPath,
+		ExamplePath:       examplePath,
+		AppIDKey:          layout.AppIDKey,
+		AppCertificateKey: layout.AppCertificateKey,
+	}, project, credentialEnvWriteOptions{AllowAppend: true})
+	if err != nil {
 		return "", "", err
 	}
-	if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil {
-		return "", "", err
-	}
-	return filepath.ToSlash(layout.EnvTargetPath), status, nil
-}
-
-func conflictingQuickstartEnvKeys(layout quickstartEnvLayout) []string {
-	allCredentialKeys := []string{
-		"NEXT_PUBLIC_AGORA_APP_ID",
-		"NEXT_AGORA_APP_CERTIFICATE",
-		"AGORA_APP_ID",
-		"AGORA_APP_CERTIFICATE",
-		"APP_ID",
-		"APP_CERTIFICATE",
-	}
-	conflicts := make([]string, 0, len(allCredentialKeys)-2)
-	for _, key := range allCredentialKeys {
-		if key != layout.AppIDKey && key != layout.AppCertificateKey {
-			conflicts = append(conflicts, key)
-		}
-	}
-	return conflicts
-}
-
-func renderQuickstartEnvValues(layout quickstartEnvLayout, project projectDetail) map[string]any {
-	return map[string]any{
-		layout.AppIDKey:          project.AppID,
-		layout.AppCertificateKey: *project.SignKey,
-	}
+	return filepath.ToSlash(layout.EnvTargetPath), written.Status, nil
 }
