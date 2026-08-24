@@ -75,7 +75,7 @@ These codes appear inside `data.checks[].issues[].code` and (for blocking issues
 | `WORKSPACE_TEMPLATE_UNKNOWN` | 1 | The CLI could not detect the quickstart template for this repo. | Pass `--template` to the failing command. |
 | `WORKSPACE_ENV_PATH_UNKNOWN` | 1 | The CLI could not determine the quickstart env target path. | Pass `--template` and re-run; if persistent, file an issue. |
 | `WORKSPACE_ENV_FILE_MISSING` | 1 | A quickstart env file expected by the bound template is missing. | Run the command from `suggestedCommand` (typically `agora quickstart env write`). |
-| `WORKSPACE_ENV_READ_FAILED` | 1 | The CLI could not read the quickstart env file. | Run the command from `suggestedCommand` (`agora quickstart env write . --project <id> --overwrite`); if it still fails, inspect file permissions and contents. |
+| `WORKSPACE_ENV_READ_FAILED` | 1 | The CLI could not read the quickstart env file. | Run the command from `suggestedCommand` (`agora quickstart env write . --project <id>`); if it still fails, inspect file permissions and contents. |
 | `WORKSPACE_ENV_PROJECT_MISMATCH` | 1 | The quickstart env file points at a different App ID than the selected project. | Run the command from `suggestedCommand` to overwrite the env file. |
 | `WORKSPACE_ENV_METADATA_MISSING` | 1 | The quickstart env file is missing Agora-managed project metadata comments. | Run the command from `suggestedCommand` to refresh metadata. |
 | `WORKSPACE_ENV_APP_ID_MISSING` | 1 | A quickstart env file is missing the required app ID key. | Run the command from `suggestedCommand`. |

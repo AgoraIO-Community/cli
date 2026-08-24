@@ -1,10 +1,10 @@
 ---
-title: Using .env.local
+title: Using Quickstart env files
 ---
 
-# Using `.env.local`
+# Using Quickstart env files
 
-For official Next.js, Python, and Go Quickstarts, Agora CLI creates or updates
+For official Next.js, Python, Go, and Android Quickstarts, Agora CLI creates or updates
 the runtime-specific env file with the Agora App ID and App Certificate for the
 selected project. It does not download a ready-made dotenv file from Console.
 The CLI starts with the example env file from the cloned repository, then
@@ -26,6 +26,7 @@ Quickstart env layouts:
 | Next.js | `env.local.example` | `.env.local` | `NEXT_PUBLIC_AGORA_APP_ID`, `NEXT_AGORA_APP_CERTIFICATE` |
 | Python | `server/.env.example` | `server/.env` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
 | Go | `server/.env.example` | `server/.env` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
+| Android | `server/.env.example` | `server/.env.local` | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
 
 If the target env file already exists, the CLI uses it as the starting content
 and updates the Agora credential keys while preserving unrelated entries. If
@@ -43,7 +44,9 @@ agora quickstart env write . --project <project-id-or-name>
 
 Prefer `agora quickstart env write` for official Quickstarts. Use
 `agora project env write <path>` when you want to write credentials to a
-specific dotenv path outside the official Quickstart layout.
+specific dotenv path outside the official Quickstart layout. Both commands use
+the same credential merge rules: unrelated entries are preserved, current keys
+are updated, and unsupported legacy credential names are commented out.
 
 ## Where the credentials come from
 

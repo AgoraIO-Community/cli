@@ -33,7 +33,7 @@ Quickstart project and environment consistency, Android onboarding, Windows inst
 ### Fixed
 
 - Bump the pinned Go toolchain to 1.26.6 to address reachable standard-library vulnerabilities reported by `govulncheck` in Go 1.26.5 ([09fcba8](https://github.com/AgoraIO/cli/commit/09fcba8)).
-- Ensure `agora init` and quickstart env writes create `server/.env` with `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` for Python and Go, including older directory layouts that previously emitted unsupported unprefixed names; align with the upstream Python and Go env-file migrations ([91cb8f7](https://github.com/AgoraIO/cli/commit/91cb8f7), [Python #26](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-python/pull/26), [Go #8](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-go/pull/8)).
+- Ensure `agora init`, `quickstart env write`, and `project env write` share credential-file semantics: Python and Go use `server/.env` with `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`, template example values are preserved, and unsupported legacy credential names are normalized consistently; align with the upstream Python and Go env-file migrations ([91cb8f7](https://github.com/AgoraIO/cli/commit/91cb8f7), [Python #26](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-python/pull/26), [Go #8](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-go/pull/8)).
 
 ### Documentation
 

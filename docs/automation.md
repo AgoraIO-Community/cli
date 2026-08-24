@@ -507,6 +507,11 @@ Example:
 ./agora project env write apps/web/.env.local --json
 ```
 
+Use this command for an explicit dotenv path in a custom repository. For an
+official Agora Quickstart, prefer `agora quickstart env write [dir]` so the CLI
+selects the template-specific path, seeds the template example, and updates
+Quickstart binding metadata.
+
 Optional `data` fields:
 - `credentialLayout`
   Either `standard` (AGORA_* keys) or `nextjs` (`NEXT_PUBLIC_AGORA_APP_ID` and `NEXT_AGORA_APP_CERTIFICATE`) when the workspace is detected or overridden as Next.js.
@@ -523,7 +528,7 @@ Required `data` fields:
 - `status`
   One of `created`, `updated`, `appended`, or `overwritten`.
 - `keysWritten`
-  Ordered list of credential keys that were written. By default `project env write` uses `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Next.js workspaces (detected via `package.json` / `next.config.*` / `env.local.example` / repo `.agora` `projectType` / `template: nextjs`, or forced with `--template nextjs`) use `NEXT_PUBLIC_AGORA_APP_ID` and `NEXT_AGORA_APP_CERTIFICATE` instead. Non-secret project metadata stays in `.agora/project.json`.
+  Ordered list of credential keys that were written. By default `project env write` uses `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Next.js workspaces (detected via `package.json` / `next.config.*` / `env.local.example` / repo `.agora` `projectType` / `template: nextjs`, or forced with `--template nextjs`) use `NEXT_PUBLIC_AGORA_APP_ID` and `NEXT_AGORA_APP_CERTIFICATE` instead. Unsupported credential aliases such as `APP_ID` and `APP_CERTIFICATE` are commented out when the canonical keys are written. Non-secret project metadata stays in `.agora/project.json`.
 
 Optional `data` fields (present when the CLI updates or creates repo metadata):
 - `metadataUpdated`
@@ -663,6 +668,11 @@ Example:
 ```bash
 ./agora quickstart env write /abs/path/to/my-python-demo --json
 ```
+
+This is the canonical env-write workflow for official Agora Quickstarts. It
+uses the same credential merge and legacy-key cleanup semantics as
+`project env write`, while additionally selecting the template-specific target,
+seeding its example file, and updating `.agora/project.json`.
 
 Required `data` fields:
 - `action`
