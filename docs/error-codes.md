@@ -35,7 +35,6 @@ This catalog is the source of truth for stable codes. CI runs `make snapshot-err
 
 | Code | Exit | Meaning | Recovery |
 |------|------|---------|----------|
-| `QUICKSTART_TEMPLATE_REQUIRED` | 1 | `init` needs a template in JSON, CI, or non-TTY mode. | Pass `--template` or run `agora quickstart list`. |
 | `QUICKSTART_TEMPLATE_UNKNOWN` | 1 | The template ID is not known to this CLI. | Run `agora quickstart list`. |
 | `QUICKSTART_TEMPLATE_UNAVAILABLE` | 1 | The template exists but is not currently available. | Choose an available template. |
 | `QUICKSTART_TEMPLATE_ENV_UNSUPPORTED` | 1 | The selected template does not define an env target path. | Choose a template with env support or configure the env file manually. |
@@ -46,8 +45,17 @@ This catalog is the source of truth for stable codes. CI runs `make snapshot-err
 | `QUICKSTART_REPO_OVERRIDE_INVALID` | 1 | The `AGORA_QUICKSTART_<TEMPLATE>_REPO_URL` env override is set to a malformed value. | Set the variable to an `https://`, `ssh://`, `git://`, `file://`, `git@host:path`, or absolute local path URL — or unset it. |
 | `QUICKSTART_GIT_MISSING` | 1 | `git` is required but was not found on `PATH`. | Install git (https://git-scm.com/downloads) and retry. |
 | `INIT_NAME_REQUIRED` | 1 | `agora init` was run without the required target directory name. | Pass a directory name, for example `agora init my-nextjs-demo --template nextjs`. |
+| `INIT_SOURCE_REQUIRED` | 1 | Non-interactive `agora init` received neither a quickstart template nor a recipe. | Pass exactly one of `--template <id>` or `--recipe <slug>`. |
+| `INIT_SOURCE_CONFLICT` | 1 | `agora init` received both `--template` and `--recipe`. | Pass only one initialization source. |
 | `INIT_ABORTED` | 1 | The interactive `agora init` reuse prompt was answered "no". | Re-run with `--project <id>`, `--new-project`, or accept the prompt. |
 | `PROJECT_NAME_REQUIRED` | 1 | `agora project create` (or the equivalent MCP tool) was called without `name`. | Pass a project name, for example `agora project create my-app`. |
+| `RECIPE_TYPE_INVALID` | 1 | The recipe type filter is not supported. | Use `all`, `ai`, or `rtc`. |
+| `RECIPE_NOT_FOUND` | 1 | The official recipes API did not contain the requested slug. | Run `agora recipes list` and retry with an available slug. |
+| `RECIPE_API_FAILED` | 1 | The recipes API could not be reached or returned a non-success status. | Check connectivity and retry; use `AGORA_RECIPES_BASE_URL` only for staging/testing. |
+| `RECIPE_RESPONSE_INVALID` | 1 | The recipes API response violated its documented schema or included a non-official entry. | Retry; if persistent, report the response schema mismatch. |
+| `RECIPE_SCHEMA_UNSUPPORTED` | 1 | The recipes API schema version is not supported by this CLI. | Upgrade the CLI. |
+| `RECIPE_REPO_URL_INVALID` | 1 | A recipe returned an invalid repository clone URL. | Report the catalog entry; do not clone it manually without verification. |
+| `RECIPE_INIT_UNSUPPORTED` | 1 | An official recipe can be viewed but does not yet include CLI env metadata. | Choose another recipe or follow its recipe document manually. |
 
 ### Self-update (`agora upgrade`)
 

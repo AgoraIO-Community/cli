@@ -135,6 +135,8 @@ func TestMCPToolsListCoversFullSurface(t *testing.T) {
 		"agora.quickstart.create",
 		"agora.quickstart.env_write",
 		"agora.quickstart.list",
+		"agora.recipes.list",
+		"agora.recipes.show",
 		"agora.telemetry.status",
 		"agora.upgrade.check",
 		"agora.version",
@@ -167,6 +169,20 @@ func TestMCPToolsListCoversFullSurface(t *testing.T) {
 			t.Errorf("unexpected MCP tools (update test or remove): %v", extra)
 		}
 	}
+}
+
+func TestMCPInitRequiresExactlyOneSource(t *testing.T) {
+	a := newTestApp(t)
+
+	_, err := a.callMCPTool("agora.init", map[string]any{"name": "demo"}, nil)
+	assertCLIErrorCode(t, err, "INIT_SOURCE_REQUIRED")
+
+	_, err = a.callMCPTool("agora.init", map[string]any{
+		"name":     "demo",
+		"template": "nextjs",
+		"recipe":   "tool-calling",
+	}, nil)
+	assertCLIErrorCode(t, err, "INIT_SOURCE_CONFLICT")
 }
 
 func TestMCPProjectWebhookDeleteRequiresConfirm(t *testing.T) {

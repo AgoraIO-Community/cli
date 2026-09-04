@@ -22,6 +22,7 @@ Quickstart project and environment consistency, Android onboarding, Windows inst
 ### Added
 
 - Add the Android conversational AI client/server quickstart to `agora init` and `agora quickstart`, writing credentials only to the included Python server and returning setup steps for the server, HTTPS tunnel, and Android client ([#55](https://github.com/AgoraIO/cli/pull/55)).
+- Add official recipe discovery with `agora recipes list/show` and recipe-backed initialization with `agora init --recipe <slug>`. Recipe metadata is resolved from the versioned `recipes.agora.io` API before project creation, and the API-provided env contract drives credential writing without framework guessing.
 
 ### Changed
 

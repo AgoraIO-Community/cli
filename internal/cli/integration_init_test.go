@@ -76,8 +76,8 @@ func TestCLIInitRequiresTemplateWhenNoInputIsSet(t *testing.T) {
 			"AGORA_LOG_LEVEL": "error",
 		},
 	})
-	if result.exitCode != 1 || !strings.Contains(result.stdout, `"code":"QUICKSTART_TEMPLATE_REQUIRED"`) {
-		t.Fatalf("expected QUICKSTART_TEMPLATE_REQUIRED, got %+v", result)
+	if result.exitCode != 1 || !strings.Contains(result.stdout, `"code":"INIT_SOURCE_REQUIRED"`) {
+		t.Fatalf("expected INIT_SOURCE_REQUIRED, got %+v", result)
 	}
 }
 

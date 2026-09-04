@@ -21,6 +21,7 @@ func (a *App) buildRoot() *cobra.Command {
   auth        Authenticate this machine with Agora Console
   project     Manage remote Agora project resources and env values
   quickstart  Clone official standalone quickstart repositories
+  recipes     Discover official Agora recipe repositories
   init        Create a project and quickstart in one onboarding flow
 
 Use "agora init" for the fastest path to a runnable demo.
@@ -101,6 +102,7 @@ Use "agora --help --all --json" for a machine-readable command tree (agent tooli
 	root.AddCommand(a.buildConfigCommand())
 	root.AddCommand(a.buildProjectCommand())
 	root.AddCommand(a.buildQuickstartCommand())
+	root.AddCommand(a.buildRecipesCommand())
 	root.AddCommand(a.buildInitCommand())
 	root.AddCommand(a.buildVersionCommand())
 	root.AddCommand(a.buildIntrospectCommand())

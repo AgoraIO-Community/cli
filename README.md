@@ -86,7 +86,7 @@ Requires the Go toolchain pinned in [go.mod](go.mod). For direct installer optio
 
 ## Quick Start
 
-Recommended path: install the CLI, log in, then run `agora init`. The CLI binds a project, clones an official quickstart, writes the runtime env file (App ID and App Certificate), and creates `.agora/project.json`. You do **not** need to download an env file from Agora Console for this flow.
+Recommended path: install the CLI, log in, then run `agora init`. The CLI binds a project, clones an official quickstart or recipe, writes the runtime env file (App ID and App Certificate), and creates `.agora/project.json`. You do **not** need to download an env file from Agora Console for this flow.
 
 ```bash
 # 1) Log in
@@ -95,6 +95,8 @@ agora login
 # 2) Create a local demo bound to a project
 # Interactive (TTY): reuses "Default Project" if present; otherwise prompts to pick or create
 agora init my-nextjs-demo --template nextjs
+# Or initialize an official recipe from recipes.agora.io
+# agora init my-agent --recipe tool-calling
 # For deterministic non-interactive / --json / CI runs, select or create explicitly
 # agora init my-nextjs-demo --template nextjs --project <project-id-or-name>
 # agora init my-nextjs-demo --template nextjs --new-project
@@ -137,6 +139,7 @@ Command examples use `agora` for the installed CLI. Local source builds use `./a
 | Python voice agent | `agora init my-python-demo --template python` | A Python quickstart with `server/.env` credentials |
 | Go voice agent | `agora init my-go-demo --template go` | A Go quickstart with `server/.env` credentials |
 | Android voice AI app | `agora init my-android-demo --template android` | An Android client with credentials written only to the included Python server |
+| Official recipe | `agora init my-agent --recipe tool-calling` | The recipe repository, API-defined env file, and `.agora` binding |
 
 Android follows the same project binding and env-writing flow as the web quickstarts. Its `nextSteps` additionally cover starting the Python server, opening a temporary HTTPS tunnel, writing that public URL to `local.properties`, and assembling the Android client. The App Certificate remains only in `server/.env.local`.
 
@@ -148,6 +151,7 @@ The command model is intentionally layered:
 
 - `init` for the recommended onboarding path (project + clone + env)
 - `quickstart` for local cloned starter repos (requires `git`)
+- `recipes` for read-only discovery of official recipes from `recipes.agora.io`
 - `project` for remote Agora control-plane resources (does not clone scaffolds)
 - `auth` for login and session inspection
 - `config` for local CLI defaults
@@ -164,8 +168,9 @@ The command model is intentionally layered:
 
 | Goal | Command |
 |------|---------|
-| New user, one shot | `agora init <name> --template <id>` (reuses `Default Project` / interactive picker; or `--project` / `--new-project`) |
+| New user, one shot | `agora init <name> --template <id>` or `--recipe <slug>` (reuses `Default Project` / interactive picker; or `--project` / `--new-project`) |
 | List available templates | `agora quickstart list` |
+| List official recipes | `agora recipes list` |
 | Clone a starter only | `agora quickstart create ... --template-only` |
 | Re-sync / rebind env in a cloned quickstart | `agora quickstart env write [dir]` (optional `--project` to rebind) |
 | Write env to an arbitrary path / non-quickstart repo | `agora project env write <path>` |
@@ -195,7 +200,14 @@ agora introspect --json
 
 ### `init`
 
-Recommended onboarding command. By default it reuses a project named `Default Project` when present. In an interactive TTY without that project, it prompts you to pick or create one. Non-interactive/`--json`/CI runs fall back to the most recent project (or create one when none exist). Prefer `--project <id-or-name>` or `--new-project` for explicit selection. It clones a quickstart, writes the template env file from the project API, writes `.agora/project.json`, updates global context, and prints next steps.
+Recommended onboarding command. By default it reuses a project named `Default Project` when present. In an interactive TTY without that project, it prompts you to pick or create one. Non-interactive/`--json`/CI runs fall back to the most recent project (or create one when none exist). Prefer `--project <id-or-name>` or `--new-project` for explicit selection. It clones either a built-in quickstart (`--template`) or an official catalog recipe (`--recipe`), writes credentials using that source's env contract, writes `.agora/project.json`, updates global context, and prints next steps.
+
+### `recipes`
+
+Lists and inspects the official recipes published by `recipes.agora.io`. Use
+`recipes list --type all|ai|rtc` to discover slugs and `recipes show <slug>` to
+inspect the repository, recipe document, and optional CLI initialization
+metadata. Recipe discovery is read-only; `init --recipe` performs the clone.
 
 ### `quickstart`
 

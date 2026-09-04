@@ -102,7 +102,7 @@ _No local flags. Inherited parent and global flags still apply; run `agora <comm
 
 ### `agora init`
 
-Create a project, clone a quickstart, and write env in one flow
+Create a project and initialize an official quickstart or recipe
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -111,6 +111,7 @@ Create a project, clone a quickstart, and write env in one flow
 | `--feature` | `stringArray` | `[]` | enable a feature on the newly created project (repeatable); defaults to rtc, rtm, convoai; convoai also enables rtm |
 | `--new-project` | `bool` | — | always create a new Agora project instead of reusing an existing one |
 | `--project` | `string` | — | existing project ID or exact project name to bind to |
+| `--recipe` | `string` | — | official Agora recipe slug (run agora recipes list to discover slugs) |
 | `--rtm-data-center` | `string` | — | RTM data center to configure when rtm is enabled on a newly created project (CN, NA, EU, or AP); defaults to NA |
 | `--template` | `string` | — | quickstart template ID to use |
 
@@ -359,6 +360,26 @@ List available official quickstarts
 | `--details` | `bool` | — | show repository, runtime, and env details in pretty output |
 | `--show-all` | `bool` | — | include upcoming or unavailable templates in the list |
 
+### `agora recipes`
+
+Discover official Agora recipes
+
+_No local flags. Inherited parent and global flags still apply; run `agora <command> --help` for the full flag set._
+
+### `agora recipes list`
+
+List recipes from the Agora catalog
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--type` | `string` | `all` | recipe type: all, ai, or rtc |
+
+### `agora recipes show`
+
+Show one Agora recipe
+
+_No local flags. Inherited parent and global flags still apply; run `agora <command> --help` for the full flag set._
+
 ### `agora skills`
 
 Browse curated Agora workflows for humans and AI agents
@@ -439,3 +460,5 @@ Show the current auth status
 **`outputModes`**: `pretty`, `json`
 
 **`doctorStatus`**: `healthy`, `warning`, `not_ready`, `auth_error`
+
+**`recipeTypes`**: `all`, `ai`, `rtc`

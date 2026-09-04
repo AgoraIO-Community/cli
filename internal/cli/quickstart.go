@@ -424,16 +424,9 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	if !template.Available || strings.TrimSpace(template.RepoURL) == "" {
 		return nil, &cliError{Message: fmt.Sprintf("Quickstart template %q is not available yet.", template.ID), Code: "QUICKSTART_TEMPLATE_UNAVAILABLE"}
 	}
-	absTarget, err := filepath.Abs(targetDir)
+	absTarget, err := resolveScaffoldTarget(targetDir)
 	if err != nil {
 		return nil, err
-	}
-	if info, err := os.Stat(absTarget); err == nil {
-		return nil, &cliError{Message: fmt.Sprintf("%s already exists. Choose a new target directory.", absTarget), Code: "QUICKSTART_TARGET_EXISTS"}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	} else if info != nil {
-		return nil, &cliError{Message: fmt.Sprintf("%s already exists. Choose a new target directory.", absTarget), Code: "QUICKSTART_TARGET_EXISTS"}
 	}
 
 	var boundProject *projectTarget
@@ -477,18 +470,9 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 	if overrideKey != "" {
 		progress.emit("clone:override", fmt.Sprintf("Using repo override from %s", overrideKey), map[string]any{"repoUrl": repoURL, "envVar": overrideKey})
 	}
-	progress.emit("clone:start", "Cloning quickstart repository", map[string]any{"repoUrl": repoURL, "targetPath": absTarget, "ref": ref})
-	if err := cloneQuickstartRepo(repoURL, absTarget, ref); err != nil {
+	if err := cloneScaffoldRepo(repoURL, absTarget, ref, progress); err != nil {
 		return nil, err
 	}
-	progress.emit("clone:complete", "Quickstart repository cloned", map[string]any{"targetPath": absTarget})
-	if err := stripClonedGitMetadata(absTarget); err != nil {
-		if cleanupErr := os.RemoveAll(absTarget); cleanupErr != nil {
-			return nil, fmt.Errorf("failed to remove quickstart git metadata after clone: %v; cleanup also failed for %s: %v", err, absTarget, cleanupErr)
-		}
-		return nil, fmt.Errorf("failed to remove quickstart git metadata after clone: %v; removed %s", err, absTarget)
-	}
-	progress.emit("clone:strip-git", "Removed quickstart repository history", map[string]any{"targetPath": absTarget})
 
 	written := []string{}
 	envStatus := "template-only"
@@ -547,6 +531,35 @@ func (a *App) quickstartCreate(template quickstartTemplate, targetDir, explicitP
 		result["metadataPath"] = filepath.ToSlash(filepath.Join(localAgoraDirName, localProjectFileName))
 	}
 	return result, nil
+}
+
+func resolveScaffoldTarget(targetDir string) (string, error) {
+	absTarget, err := filepath.Abs(targetDir)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(absTarget); err == nil {
+		return "", &cliError{Message: fmt.Sprintf("%s already exists. Choose a new target directory.", absTarget), Code: "QUICKSTART_TARGET_EXISTS"}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return absTarget, nil
+}
+
+func cloneScaffoldRepo(repoURL, absTarget, ref string, progress progressEmitter) error {
+	progress.emit("clone:start", "Cloning scaffold repository", map[string]any{"repoUrl": repoURL, "targetPath": absTarget, "ref": ref})
+	if err := cloneQuickstartRepo(repoURL, absTarget, ref); err != nil {
+		return err
+	}
+	progress.emit("clone:complete", "Scaffold repository cloned", map[string]any{"targetPath": absTarget})
+	if err := stripClonedGitMetadata(absTarget); err != nil {
+		if cleanupErr := os.RemoveAll(absTarget); cleanupErr != nil {
+			return fmt.Errorf("failed to remove scaffold git metadata after clone: %v; cleanup also failed for %s: %v", err, absTarget, cleanupErr)
+		}
+		return fmt.Errorf("failed to remove scaffold git metadata after clone: %v; removed %s", err, absTarget)
+	}
+	progress.emit("clone:strip-git", "Removed scaffold repository history", map[string]any{"targetPath": absTarget})
+	return nil
 }
 
 func (a *App) quickstartEnvWrite(targetDir, templateID, explicitProject string) (map[string]any, error) {
